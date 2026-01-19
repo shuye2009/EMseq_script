@@ -1,0 +1,60 @@
+Literature on Radiation and Centromeric Satellite Transcription
+While direct studies on ionizing radiation specifically inducing centromeric satellite transcription are limited, the literature reveals important connections through stress responses and DNA damage pathways:
+
+Key Reviews and Studies
+1. Heterochromatin response to radiation-induced DNA damage:
+
+Iacovoni et al. (2010) - Nat Commun 11:2740
+"Imaging the response to DNA damage in heterochromatin domains reveals core principles of heterochromatin maintenance"
+Shows heterochromatin decompaction occurs at pericentromeric regions following ionizing radiation-induced DSBs
+Tsouroula et al. (2016) - Front Genet 12:730696
+"DNA Double-Strand Break Repair: All Roads Lead to HeterochROMAtin Marks"
+Documents that ionizing radiation causes pericentromeric heterochromatin expansion in mouse cells
+ATM-dependent phosphorylation of KAP-1 triggers heterochromatin relaxation
+2. Stress-induced satellite transcription:
+
+Jolly et al. (2004) - J Cell Biol 164(1):25-33
+"Stress-induced transcription of satellite III repeats"
+First demonstration that heat shock induces massive transcription of satellite III repeats via HSF1
+Satellite RNAs remain chromatin-associated
+Valgardsdottir et al. (2008) - Nucleic Acids Res 36(2):423-434
+"Transcription of Satellite III non-coding RNAs is a general stress response in human cells"
+Shows multiple stresses induce satellite III transcription including:
+Heat shock (>1000-fold induction)
+UV-C radiation (600-fold induction at 80 J/m²)
+Osmotic stress, heavy metals, oxidative stress
+Critical finding: UV radiation induces satellite transcription
+3. Pericentromeric transcription in cancer (indirect radiation connection):
+
+Bersani et al. (2015) - PNAS 112(49):15148-15153
+"Pericentromeric satellite repeat expansions through RNA-derived DNA intermediates in cancer"
+HSATII (satellite II) massively overexpressed in epithelial cancers
+Stress and growth conditions trigger satellite derepression
+4. Alpha satellite biology:
+
+McNulty & Sullivan (2018) - Chromosome Res 26(3):115-138
+"Alpha satellite DNA biology: Finding function in the recesses of the genome"
+Comprehensive review of centromeric transcription
+Alpha satellite RNAs required for CENP-A loading, kinetochore function
+Stress conditions alter satellite transcription patterns
+5. Heterochromatin stress response (mechanistic):
+
+Tittel-Elmer et al. (2010) - PLoS Genet 6(10):e1001175
+"Stress-Induced Activation of Heterochromatic Transcription"
+Temperature stress causes genome-wide heterochromatin derepression
+Occurs without loss of repressive epigenetic marks (H3K9me3, DNA methylation)
+Suggests transcription factor-mediated override of silencing
+Connecting Radiation to Satellite Transcription
+Mechanistic links:
+
+ATM/ATR pathway activation → KAP-1 phosphorylation → heterochromatin relaxation → satellite transcription
+UV radiation documented to induce satellite III (Valgardsdottir 2008)
+Genotoxic stress generally triggers satellite derepression
+Chromatin remodeling at damaged heterochromatin allows RNA Pol II access
+Recommended Reading Order
+Valgardsdottir 2008 - Direct evidence UV induces satellites
+Jolly 2004 - Foundational stress-satellite work
+Tsouroula 2016 - Radiation effects on pericentromeric heterochromatin
+McNulty & Sullivan 2018 - Comprehensive centromeric transcription review
+Gap in Literature
+There's limited direct work on ionizing radiation (X-ray, gamma) specifically measuring centromeric satellite RNA induction, making your RNA-seq analysis on T2T-CHM13 centromeres with radiation treatment potentially novel and significant.

@@ -1,0 +1,493 @@
+library(DSS)
+library(bsseq)
+library(ggplot2)
+library(dplyr)
+library(DMRichR)
+library(rGREAT)
+library(chipenrich)
+library(ggsignif)
+
+
+findDirectionalDMR <- function(DML, pval_cutoff=0.05, ratio_cutoff=2){
+  dmrs <- callDMR(DML, 
+                      delta=0, 
+                      p.threshold=pval_cutoff,
+                      minlen=50, 
+                      minCG=3, 
+                      dis.merge=100, 
+                      pct.sig=0.5) |>
+    dplyr::filter(abs(areaStat/nCG) > ratio_cutoff) |>
+    dplyr::mutate(status = case_when(areaStat > 0 ~ "hyper",
+                                     areaStat < 0 ~ "hypo",
+                                     .default = "none"))
+  
+  dmrs_background <- callDMR(DML, 
+                       delta=0, 
+                       p.threshold=0.99,
+                       minlen=50, 
+                       minCG=3, 
+                       dis.merge=100, 
+                       pct.sig=0.01) |>
+    dplyr::filter(abs(areaStat/nCG) < ratio_cutoff) |>
+    dplyr::filter(length < max(dmrs$length)) |>
+    dplyr::mutate(status = case_when(areaStat > 0 ~ "hyper",
+                                     areaStat < 0 ~ "hypo",
+                                     .default = "none"))
+  
+  return(list(sigRegions=dmrs, bgRegions=dmrs_background))
+}
+
+partition_dmrs <- function(sigRegions = sigRegions){
+  message("Making DMR list")
+  
+  GenomicRanges::GRangesList("All DMRs" = sigRegions,
+                             "Hypermethylated DMRs" = sigRegions %>%
+                               plyranges::filter(status == "hyper"),
+                             "Hypomethylated DMRs" = sigRegions %>%
+                               plyranges::filter(status == "hypo")) %>% 
+    return()
+}
+
+# x is an index
+DMRich <- function(x){
+  
+  if(genome %in% c("hg38", "hg19", "mm10", "mm9", "rheMac10", "rheMac8", "rn6", "danRer11", "galGal6", "bosTau9", "panTro6", "dm6", "susScr11", "canFam3")){
+    print(glue::glue("Running CpG annotation enrichments for {names(dmrList)[x]}"))
+    dmrList[x] %>% 
+      DMRichR::DMRichCpG(regions = regions,
+                         genome = genome,
+                         resPath = resPath) %T>%
+      openxlsx::write.xlsx(file = glue::glue("DMRichments/{names(dmrList)[x]}_CpG_enrichments.xlsx")) %>% 
+      DMRichR::DMRichPlot(type = "CpG") %>% 
+      ggplot2::ggsave(glue::glue("DMRichments/{names(dmrList)[x]}_CpG_enrichments.pdf"),
+                      plot = ., 
+                      width = 4,
+                      height = 3)
+  }
+  
+  print(glue::glue("Running gene region annotation enrichments for {names(dmrList)[x]}"))
+  dmrList[x] %>% 
+    DMRichR::DMRichGenic(regions = regions,
+                         TxDb = TxDb,
+                         annoDb = annoDb,
+                         resPath = resPath) %T>%
+    openxlsx::write.xlsx(file = glue::glue("DMRichments/{names(dmrList)[x]}_genic_enrichments.xlsx")) %>% 
+    DMRichR::DMRichPlot(type = "genic") %>% 
+    ggplot2::ggsave(glue::glue("DMRichments/{names(dmrList)[x]}_genic_enrichments.pdf"),
+                    plot = ., 
+                    width = 4,
+                    height = 4)
+}
+
+output_DMR <- function(DMR){
+  dir.create(("DMR"))
+  dmr <- DMR$sigRegions
+  background <- dmrs$bgRegions
+  
+  dmr$name <- rownames(dmr)
+  dmr$strand <- rep("*", nrow(dmr))
+  dmr <- dmr[, c("chr", "start", "end", "name", "areaStat", "strand", "length", "nCG", "status")]
+  
+  write.table(dmr, "DMR/DMR.bed", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+  
+  background$name <- rownames(background)
+  background$strand <- rep("*", nrow(background))
+  background <- background[, c("chr", "start", "end", "name", "areaStat", "strand", "length", "nCG", "status")]
+  
+  write.table(background, "DMR/background.bed", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+  
+  hyper <- dmr |>
+    dplyr::filter(status == "hyper")
+  hypo <- dmr |>
+    dplyr::filter(status == "hypo")
+  
+  write.table(hyper, "DMR/DMR_hyper.bed", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+  write.table(hypo, "DMR/DMR_hypo.bed", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+}
+
+GREAT_analysis <- function(DMR, genesetName="GO:BP", padj_cutoff=0.2, geneset_cutoff=200){
+  dir.create(("GREAT"))
+  
+  dmr_list <- list()
+  dmr_list$sigDMR <- DMR$sigRegions
+  dmr_list$background <- dmrs$bgRegions
+  
+  for(dname in names(dmr_list)[1]){
+    dmr <- dmr_list[[dname]]
+    
+    hyper_gr <- as(dmr[dmr$status=="hyper",], "GRanges")
+    hypo_gr <- as(dmr[dmr$status=="hypo",], "GRanges")
+    
+    #genesetName <- "GO:BP"
+    hyper_res <- rGREAT::great(hyper_gr, gene_sets = genesetName, "GREAT:hg38")
+    hypo_res <- rGREAT::great(hypo_gr, gene_sets = genesetName, "GREAT:hg38")
+    
+    genesetName <- gsub(":", "_", genesetName, fixed = TRUE)
+    
+    pdf(paste0("GREAT/distance_to_TSS_hyper_", dname, ".pdf"))
+    plotRegionGeneAssociations(hyper_res)
+    plotVolcano(hyper_res)
+    dev.off()
+    
+    pdf(paste0("GREAT/distance_to_TSS_hypo_", dname, ".pdf"))
+    plotRegionGeneAssociations(hypo_res)
+    plotVolcano(hypo_res)
+    dev.off()
+    
+    hyper_res_table <- getEnrichmentTable(hyper_res) %>%
+      dplyr::filter(p_adjust < padj_cutoff) |>
+      dplyr::filter(gene_set_size < geneset_cutoff)
+    
+    hypo_res_table <- getEnrichmentTable(hypo_res) %>%
+      dplyr::filter(p_adjust < padj_cutoff) |>
+      dplyr::filter(gene_set_size < geneset_cutoff)
+    
+    hyper_genes <- sapply(hyper_res_table$id, function(x){
+      gene_gr <- getRegionGeneAssociations(hyper_res, term_id = x, by_middle_points = FALSE,
+                                           use_symbols = TRUE)
+      gene <- unlist(gene_gr$annotated_genes)
+      names(gene) <- NULL
+      genes <- paste(unique(gene), collapse = ",")
+    })
+    hyper_res_table$gene_name <- hyper_genes
+    
+    hypo_genes <- sapply(hypo_res_table$id, function(x){
+      gene_gr <- getRegionGeneAssociations(hypo_res, term_id = x, by_middle_points = FALSE,
+                                           use_symbols = TRUE)
+      gene <- unlist(gene_gr$annotated_genes)
+      names(gene) <- NULL
+      genes <- paste(unique(gene), collapse = ",")
+    })
+    hypo_res_table$gene_name <- hypo_genes
+    
+    write.table(hyper_res_table, 
+                paste0("GREAT/enrichment_in_", genesetName, "_hyper_", dname, ".tsv"), 
+                row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+    write.table(hypo_res_table, 
+                paste0("GREAT/enrichment_in_", genesetName, "_hypo_", dname, ".tsv"), 
+                row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+    
+    hyper_gene_gr <- getRegionGeneAssociations(hyper_res, term_id = NULL, by_middle_points = FALSE,
+                                               use_symbols = TRUE)
+    hyper_gene <- hyper_gene_gr$annotated_genes
+    hyper_gene_vec <- sapply(hyper_gene, function(g){
+      names(g) <- NULL
+      g <- paste(g, collapse = ",")
+    })
+    hyper_gene_gr$annotated_genes <- hyper_gene_vec
+    hyper_dist <- hyper_gene_gr$dist_to_TSS
+    hyper_dist_vec <- sapply(hyper_dist, function(d){
+      d <- paste(d, collapse = " ")
+    })
+    hyper_gene_gr$dist_to_TSS <- hyper_dist_vec
+    
+    write.table(GenomicPlot::gr2df(hyper_gene_gr), 
+                paste0("GREAT/Annotated_", genesetName, "_hyper_", dname, ".bed"),
+                row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+    
+    hypo_gene_gr <- getRegionGeneAssociations(hypo_res, term_id = NULL, by_middle_points = FALSE,
+                                              use_symbols = TRUE)
+    hypo_gene <- hypo_gene_gr$annotated_genes
+    hypo_gene_vec <- sapply(hypo_gene, function(g){
+      names(g) <- NULL
+      g <- paste(g, collapse = ",")
+    })
+    hypo_gene_gr$annotated_genes <- hypo_gene_vec
+    hypo_dist <- hypo_gene_gr$dist_to_TSS
+    hypo_dist_vec <- sapply(hypo_dist, function(d){
+      d <- paste(d, collapse = " ")
+    })
+    hypo_gene_gr$dist_to_TSS <- hypo_dist_vec
+    
+    write.table(GenomicPlot::gr2df(hypo_gene_gr), 
+                paste0("GREAT/Annotated_", genesetName, "_hypo_", dname, ".bed"),
+                row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+  }
+  
+}
+
+#DMR is a list of dataframes output by 'findDirectionalDMR'
+
+DMRichR_analysis <- function(DMR, resPath=NULL){
+  
+  sigRegions <- as(DMR$sigRegions, "GRanges")
+  regions <- as(DMR$bgRegions, "GRanges")
+  dmrList <- sigRegions %>% 
+    partition_dmrs()
+  
+  dir.create("DMRichments")
+  
+  purrr::walk(seq_along(dmrList),
+              DMRich)
+  
+  
+  purrr::walk(dplyr::case_when(genome %in% c("hg38", "hg19", "mm10", "mm9", "rn6") ~ c("CpG", "genic"),
+                               TRUE ~ "genic") %>%
+                unique(),
+              function(type){
+                
+                print(glue::glue("Creating DMRich MultiPlots for {type} annotations"))
+                
+                DMRichR::DMparseR(direction =  c("All DMRs",
+                                                 "Hypermethylated DMRs",
+                                                 "Hypomethylated DMRs"),
+                                  type = type) %>%
+                  DMRichR::DMRichPlot(type = type,
+                                      multi = TRUE) %>% 
+                  ggplot2::ggsave(glue::glue("DMRichments/{type}_multi_plot.pdf"),
+                                  plot = .,
+                                  device = NULL,
+                                  height = dplyr::case_when(type == "genic" ~ 5,
+                                                            type == "CpG" ~ 3.5),
+                                  width = 7)
+              }
+  )
+}
+
+# setup ####
+genome <- "hg38"
+context <- "CG"
+report_pattern <- paste0(".", context, "_report.txt.gz")
+
+wd <- "C:\\PROJECTS\\Shane\\Harding_combined\\local\\DSS_res"
+setwd(wd)
+
+report_path  <- "C:\\PROJECTS\\Shane\\Harding_combined\\local\\DMRcate_res"
+cores <- 1
+
+files <- list.files(path = report_path, pattern = report_pattern)
+## remove first batch of data
+files <- files[!grepl("-0", files)]
+
+names <- gsub(report_pattern, "", files)
+
+design <- as.data.frame(Reduce(rbind, strsplit(names, split="-"))) |>
+  mutate(name = files)
+colnames(design) <- c("pheno", "treat", "rep", "name")
+rownames(design) <- names
+
+design <- design |>
+  mutate(treat=factor(treat, levels=c("NIR", "IR"))) |>
+  mutate(pheno=factor(pheno, levels= c("WT", "R172K"))) |>
+  mutate(group=factor(paste(pheno, treat, sep="-"))) |>
+  mutate(group=relevel(group, "WT-NIR"))
+
+
+if(Sys.info()['sysname'] == "Windows"){
+  bpparams <- BiocParallel::SnowParam(workers = detectCores()-2, progressbar = TRUE)
+}else{
+  bpparams <- BiocParallel::MulticoreParam(workers = cores, progressbar = FALSE)
+}
+
+print(glue::glue("Reading cytosine reports..."))
+if(!file.exists("bs.RDS")){
+  bs <- bsseq::read.bismark(files = file.path(report_path, files),
+                            colData = design,
+                            rmZeroCov = FALSE,
+                            strandCollapse = TRUE,
+                            verbose = TRUE,
+                            BPPARAM = bpparams,
+                            nThread = 1) # 1L # nThread
+  bs <- GenomeInfoDb::keepStandardChromosomes(bs, pruning.mode = "coarse")
+  GenomeInfoDb::seqlevelsStyle(bs) <- "UCSC"
+  
+  saveRDS(bs, "bs.RDS")
+}else{
+  bs <- readRDS("bs.RDS")
+}
+
+
+if(!file.exists("bss.RDS")){
+  bss <- BSmooth(bs, BPPARAM = bpparams)
+  
+  saveRDS(bss, "bss.RDS")
+}else{
+  bss <- readRDS("bss.RDS")
+}
+
+
+rm(bs)
+gc()
+
+
+
+# three factor model ####
+if(!file.exists("DMLfit.RDS")){
+  DMLfit= DMLfit.multiFactor(bsf, design = design, formula = ~treat+pheno+treat:pheno)
+  saveRDS(DMLfit, "DMLfit.RDS")
+}else{
+  DMLfit <- readRDS("DMLfit.RDS")
+}
+
+DMLfit$X                 
+
+DMLTreat <- DMLtest.multiFactor(DMLfit, coef = 2)
+DMLPheno <- DMLtest.multiFactor(DMLfit, coef = 3)
+DMLInter <- DMLtest.multiFactor(DMLfit, coef = 4)
+
+rm(DMLfit)
+gc()
+
+
+pval_cutoff <- 0.05
+ratio_cutoff <- 2
+
+dmrsTreat <- findDirectionalDMR(DMLTreat, 
+                                pval_cutoff = pval_cutoff, 
+                                ratio_cutoff = ratio_cutoff)
+dmrsPheno <- findDirectionalDMR(DMLPheno, 
+                                pval_cutoff = pval_cutoff, 
+                                ratio_cutoff = ratio_cutoff)
+dmrsInter <- findDirectionalDMR(DMLInter, 
+                                pval_cutoff = pval_cutoff, 
+                                ratio_cutoff = ratio_cutoff)
+
+# plot examples treat ####
+library(DMRcate)
+
+bsf_treat <- bsf[, c("WT-IR-1", "WT-IR-2", "WT-NIR-1", "WT-NIR-2")]
+colnames(bsf_treat) <- c("IR-1", "IR-2", "NIR-1", "NIR-2")
+sample_info <- data.frame(replicate=gsub(".*-", "", colnames(bsf_treat)),
+                          group=factor(sapply((strsplit(colnames(bsf_treat), split="-")), 
+                                              function(x)x[1])),
+                          row.names=colnames(bsf_treat))
+
+pData(bsf_treat) <- sample_info
+group <- pData(bsf_treat)$group
+cols <- as.character(plyr::mapvalues(group, unique(group), 
+                                     c("blue", "magenta")))
+names(cols) <- group
+
+hypo_ids <- c(11, 28, 33, 36, 49, 55, 56, 68, 69, 99, 122, 124, 129, 133, 211)
+hyper_ids <- c(14, 18, 29, 30, 34, 37, 39, 41, 44, 50, 51, 54, 60, 65, 79, 84, 88)
+id_list <- list(hypo=hypo_ids, hyper=hyper_ids)
+
+for(a in names(id_list)){
+  ids <- id_list[[a]]
+  pdf(file.path(wd, paste0("treat/DMR_examples_", a, ".pdf")))
+  for(id in ids){
+    DMR.plot(as(dmrsTreat[[1]], "GRanges"), id, 
+             CpGs=bsf_treat, flank = 1000,
+             phen.col = cols, 
+             genome="hg38")
+  }
+  dev.off()
+}
+
+
+# main functional analysis ####
+DMRichR::annotationDatabases(genome)
+dmrs_list <- list(dmrsTreat, dmrsPheno, dmrsInter)
+names(dmrs_list) <- c("treat", "pheno", "interaction")
+
+for(aname in names(dmrs_list)[1:3]){
+  dir.create(file.path(wd, aname))
+  setwd(file.path(wd, aname))
+  dmrs <- dmrs_list[[aname]]
+  
+  output_DMR(dmrs)
+  DMRichR_analysis(dmrs)
+  GREAT_analysis(dmrs, "GO:BP")
+  GREAT_analysis(dmrs, "msigdb:C5:GO:BP")
+  GREAT_analysis(dmrs, "msigdb:C2:CP:KEGG")
+  GREAT_analysis(dmrs, "msigdb:C2:CP:REACTOME")
+  GREAT_analysis(dmrs, "msigdb:C6") #Oncogenic gene signature set
+}
+
+
+# integrate with RNAseq ####
+
+rna_integration_dir <- file.path(wd, "treat/RNAseq_integration")
+dir.create(rna_integration_dir)
+setwd(rna_integration_dir)
+
+RNAseq_dir <- "C:/PROJECTS/Shane/RNAseq/2019_05_01_RNAseq/results/deseq2"
+RNAseq_files <- c(NIR_TenG6D = file.path(RNAseq_dir, "NIR-TenG6D_rsem.csv"),
+                  NIR_TnGy3D = file.path(RNAseq_dir, "NIR-TnGy3D_rsem.csv"),
+                  NIR_TeGy1D = file.path(RNAseq_dir, "NIR-TeGy1D_rsem.csv"))
+id_map_df <- read.delim(file.path(RNAseq_dir, "geneid2name.tsv"), header = FALSE) 
+colnames(id_map_df) <- c("id", "gene_name")
+
+DMR_dir <- "C:/PROJECTS/Shane/Harding_combined/local/DSS_res/treat/GREAT"
+DMR_files <- c(hyper_methylated = file.path(DMR_dir, "Annotated_GO_BP_hyper_sigDMR.bed"),
+               hypo_methylated = file.path(DMR_dir,"Annotated_GO_BP_hypo_sigDMR.bed"))
+
+# IF a gene is associated with both hyper and hypo DMRs,
+# classify it as hypo or hyper methylated gene based on the DMR's distance to tss
+
+hypo_ddf <- read.delim(DMR_files["hypo_methylated"])
+hypo_dgenes <- unlist(strsplit(hypo_ddf$annotated_genes, split=","))
+hypo_distance <- as.numeric(unlist(strsplit(hypo_ddf$dist_to_TSS, split=" ")))
+names(hypo_distance) <- hypo_dgenes
+
+hyper_ddf <- read.delim(DMR_files["hyper_methylated"])
+hyper_dgenes <- unlist(strsplit(hyper_ddf$annotated_genes, split=","))
+hyper_distance <- as.numeric(unlist(strsplit(hyper_ddf$dist_to_TSS, split=" ")))
+names(hyper_distance) <- hyper_dgenes
+
+common_genes <- intersect(hypo_dgenes, hyper_dgenes)
+
+true_hypo_gene <- setdiff(hypo_dgenes, common_genes)
+true_hyper_gene <- setdiff(hyper_dgenes, common_genes)
+
+for(agene in common_genes){
+  hypo_d <- abs(hypo_distance[agene])
+  hyper_d <- abs(hyper_distance[agene])
+  
+  if(hypo_d < hyper_d){
+    true_hypo_gene <- c(true_hypo_gene, agene)
+  }else{
+    true_hyper_gene <- c(true_hyper_gene, agene)
+  }
+}
+
+DMR_genes <- list(hyper_methylated = true_hyper_gene,
+                  hypo_methylated = true_hypo_gene)
+
+log2Fold_list <- list()
+for(r in names(RNAseq_files)){
+  rdf <- read.csv(RNAseq_files[r])
+  rdf <- dplyr::inner_join(rdf, id_map_df, by=join_by(X==id))
+  
+  for(d in names(DMR_genes)){
+    dgenes <- DMR_genes[[d]]
+    
+    log2Fold <- rdf |>
+      dplyr::filter(gene_name %in% dgenes)
+    
+    log2Fold <- cbind(DMR_status=rep(d, nrow(log2Fold)),
+                      RNA_change = rep(r, nrow(log2Fold)),
+                      log2Fold)
+    log2Fold_list[[paste(r, d, sep=":")]] <- log2Fold
+  }
+}
+
+log2Fold_df <- dplyr::bind_rows(log2Fold_list)
+  
+pdf("RNAseq_expression_change_in_methylated_genes.pdf")
+GenomicPlot::draw_boxplot_by_factor(log2Fold_df,
+                                   fc = "DMR_status",
+                                   yc = "log2FoldChange",
+                                   xc = "RNA_change",
+                                   comp = list(c(1, 2), c(3,4), c(5,6)),
+                                   Xlab = "RNA_change",
+                                   Ylab = "log2FoldChange",
+                                   stats = "t.test",
+                                   nf = 2)
+dev.off()
+
+enriched_genes <- list(interferon_production=c("OTUD5","ATG12","TRIM27","XIAP","POLA1"),
+                      microtubule_polymerization=c("MAPT","APC2","CDK5R1","DCTN1","ARHGEF7","MAP2"))
+
+
+enrich_list <- lapply(names(enriched_genes), function(x){
+  subdf <- log2Fold_df |>
+    dplyr::filter(gene_name %in% enriched_genes[[x]]) |>
+    dplyr::filter(DMR_status == "hypo_methylated") |>
+    mutate(term = x)
+})
+
+
+enrich_df <- dplyr::bind_rows(enrich_list)
+write.table(enrich_df, "enriched_term_hypo_methylated_gene_expression.tsv", 
+            row.names = F, col.names = T, sep= "\t")

@@ -1,0 +1,27 @@
+{
+    "id": "F7C2B964",
+    "path": "C:/PROJECTS/Shane/EMseq_script/run_DDS_twoGroups.R",
+    "project_path": "run_DDS_twoGroups.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1738858124832.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "85,52",
+        "scrollLine": "0",
+        "docOutlineVisible": "1"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1739293152,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1739293152859,
+    "read_only": false,
+    "read_only_alternatives": []
+}

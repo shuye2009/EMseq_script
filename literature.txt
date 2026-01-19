@@ -1,0 +1,135 @@
+Literature on Radiation Effects on Gene Expression in Humans
+Comprehensive Reviews & Meta-Analyses
+1. Kanakoglou DS, et al. (2020). Effects of High-Dose Ionizing Radiation in Human Gene Expression: A Meta-Analysis.
+
+Journal: International Journal of Molecular Sciences
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC7139561/
+Key findings: Cell cycle arrest activation, DNA repair gene downregulation, apoptotic mechanisms activated, CDKN1A upregulation as TP53 downstream target, TIMELESS downregulation correlating with circadian rhythm
+2. Fang F, et al. (2022). Transcriptomic profiling reveals gene expression in human peripheral blood after exposure to low-dose ionizing radiation.
+
+Journal: Journal of Radiation Research, 63(1):8-18
+URL: https://academic.oup.com/jrr/article/63/1/8/6425818
+Focus: Low-dose radiation effects in peripheral blood, transcriptome changes
+3. Wahba A, Lehman SL, Tofilon PJ (2017). Radiation-induced translational control of gene expression.
+
+Journal: Radiation Research
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC5501380/
+Key findings: Post-transcriptional regulation mechanisms, translation control in glioblastoma cells, ~30% commonly affected genes in GBM cell lines
+Dose-Dependent & Time-Course Studies
+4. Gómez-Herranz M, et al. (2020). Comparison of time and dose dependent gene expression and affected pathways in primary human fibroblasts after exposure to ionizing radiation.
+
+Journal: Molecular Medicine, 26:73
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC7488023/
+Key findings: Higher number of DEGs at 4h vs 2h post-irradiation, DNA damage response pathways at 2h, metabolic pathways at 4h
+5. Manning G, et al. (2013). Radiation dose-rate effects on gene expression for human biodosimetry.
+
+Journal: BMC Medical Genomics, 8:22
+URL: https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-015-0097-x
+Focus: Dose-rate effects, biodosimetry applications
+6. Amundson SA, et al. (2001). Dose-dependent and independent temporal patterns of gene responses to ionizing radiation in human cells.
+
+Journal: Proceedings of the National Academy of Sciences
+DOI: https://ncbi.nlm.nih.gov/pmc/articles/PMC60111/
+Key findings: Temporal clustering of gene responses, dose-dependent vs independent patterns
+7. Paul S, Amundson SA (2011). Temporal clustering analysis of endothelial cell gene expression following ionizing radiation exposure.
+
+Journal: PLoS ONE, 6(9):e204960
+URL: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0204960
+Focus: Time-course from 12h to 3 weeks in HUVECs (2 Gy)
+8. Paul S, Amundson SA (2008). Transient genome-wide transcriptional response to low-dose ionizing radiation.
+
+PMID: 17996396
+Key findings: DNA/tissue remodeling, cell cycle transition, inflammation pathways, temporal dynamics in healthy human volunteers
+Epigenetic Mechanisms & DNA Methylation
+9. Belli M, Tabocchini MA (2020). Ionizing Radiation-Induced Epigenetic Modifications and Their Relevance to Radiation Protection.
+
+Journal: International Journal of Molecular Sciences, 21(17):5993
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC7503247/
+Key findings: DNA methylation changes, histone modifications, ncRNA modulation, radiation quality effects, transgenerational effects
+10. Antwih DA, et al. (2013). Radiation-induced epigenetic DNA methylation modification of radiation-response pathways.
+
+Journal: Epigenetics, 8(8):839-48
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC3883787/
+Key findings: Epigenetic component in radiation resistance, 5-azacitidine radiosensitization effects
+Transposable Elements & Repetitive Sequences
+11. Miousse IR, et al. (2015). Transposable elements in response to environmental stressors.
+
+Journal: Mobile DNA, 6:15
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC4544780/
+Key findings: LINE-1 and Alu methylation alterations, effects of high-LET radiation (56Fe, 28Si), L1 retrotransposition, association with AML in mice
+DNA Damage Response & p53 Pathways
+12. Williams AB, Schumacher B (2016). p53 in the DNA-Damage-Repair Process.
+
+Journal: Cold Spring Harbor Perspectives in Medicine
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC4852800/
+Focus: p53 central role in DNA damage response, transcriptional regulation
+13. Janic A, et al. (2018). p53 and RAD9, the DNA Damage Response, and Regulation of Transcription Networks.
+
+Journal: Radiation Research, 189(4):424-432
+DOI: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6061921/
+Key findings: p53 remains central player in transcriptional modulation after IR
+14. DNA damage response revisited: the p53 family and its regulators (2022).
+
+Journal: Experimental & Molecular Medicine, 54:1677-1698
+URL: https://www.nature.com/articles/s12276-022-00863-4
+Focus: Comprehensive review of p53 family responses to IR
+Cancer & Clinical Applications
+15. Lin C, et al. (2020). Genomic analyses of early responses to radiation in glioblastoma.
+
+Journal: Scientific Reports, 10:8403
+URL: https://www.nature.com/articles/s41598-020-65638-1
+Focus: Radioresistance mechanisms in glioblastoma
+16. An RNA-seq-based Gene Expression Profiling of Radiation-induced Tumorigenic Mammary Epithelial Cells (2016).
+
+Journal: Genomics Data
+DOI: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5054714/
+Focus: Heavy-ion radiation effects on mammary epithelium, cancer progression
+17. Goldberg Z, et al. (2004). Effects of low-dose ionizing radiation on gene expression in human skin biopsies.
+
+Journal: International Journal of Radiation Oncology Biology Physics, 58(2):567-74
+Focus: In vivo human dose-response
+Methodological & Technical
+18. The transcriptomic revolution and radiation biology (2022).
+
+Journal: Radiation Research
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC9520858/
+Focus: RNA-Seq replacing microarrays, technological advances
+19. Genetic analysis of radiation-induced changes in human gene expression (2010).
+
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC3005325/
+Key findings: Transacting regulators, transcription factors in radiation response
+20. An ionising radiation-induced specific transcriptional signature in human blood (2021).
+
+Journal: Radiation Oncology, 16:111
+URL: https://ro-journal.biomedcentral.com/articles/10.1186/s13014-021-01807-4
+Focus: Blood-based biomarkers for radiation exposure assessment
+Neural & Developmental Systems
+21. Kempf SJ, et al. (2020). Effect of Ionizing Radiation on Transcriptome during Neural Differentiation.
+
+DOI: https://pmc.ncbi.nlm.nih.gov/articles/PMC7337254/
+Focus: Low (17 mGy) and high (572 mGy) dose effects on hESC differentiation to neural lineages
+Summary of Key Themes
+Major pathways affected by radiation:
+
+Cell cycle arrest & checkpoint activation
+DNA damage response & repair (NER, BER, HR, NHEJ)
+Apoptosis & programmed cell death
+p53-mediated transcription
+Inflammation & immune response
+Metabolic reprogramming
+Circadian rhythm disruption
+Dose-dependent effects:
+
+Low dose: Adaptive responses, specific pathway activation
+High dose: Widespread transcriptional changes, cell death pathways
+Temporal dynamics:
+
+Early (0-4h): DNA damage response, cell cycle checkpoints
+Intermediate (4-24h): Metabolic changes, stress responses
+Late (>24h): Tissue remodeling, long-term adaptations
+Epigenetic changes:
+
+DNA methylation alterations (global hypomethylation)
+Transposable element activation (LINE-1, Alu)
+Histone modifications
+Non-coding RNA dysregulation

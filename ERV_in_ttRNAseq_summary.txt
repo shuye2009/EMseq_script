@@ -1,0 +1,133 @@
+ERV in Total RNA-seq Analysis Summary
+===============================
+
+Overview
+--------
+This analysis examines expression of endogenous retroviral elements (ERVs) in total RNA-seq data. The script analyzes read counts from RNA-seq data, performs differential expression analysis, and correlates expression with differentially methylated regions (DMRs) identified in the CG methylation context.
+
+Analysis Workflow
+----------------
+
+1. Data Import and Preprocessing
+   - Reads RNA-seq count data from "rCounts.txt"
+   - Cleans gene IDs and sample names
+   - Removes unnecessary columns (Chr, Start, End, Strand)
+   - Imports sample metadata from "SH07_metadata.txt"
+   - Creates column annotations for visualization
+
+2. Initial Data Visualization
+   - Creates a heatmap of all RNA-seq read counts
+   - Log-transforms data for better visualization
+   - Uses sample metadata for column annotations
+   - Saves the heatmap as "total_rnaseq_readCounts_in_repeats_heatmap.pdf"
+
+3. Differential Expression Analysis
+   - Uses edgeR to identify differentially expressed genes, pNIR is used as control for all other groups (pNIR vs treatment), each treatment is compared to pNIR and the results are saved in the treatment directory.
+   - Filters low count genes using filterByExpr
+   - Normalizes for library size with calcNormFactors
+   - Creates design matrix for each treatment vs control comparison
+   - Fits negative binomial GLM model and performs likelihood ratio tests
+   - Identifies significantly differentially expressed genes (FDR < 0.05)
+   - Creates volcano plots showing log fold change vs significance
+   - Generates heatmaps of differentially expressed genes
+   - Specifically identifies and analyzes ERV elements that are differentially expressed
+
+4. Analysis of Differentially Methylated Regions (DMRs)
+   - Processes DMR data in the CG methylation context (folder CG in each treatment directory)
+   - Reads hypermethylated and hypomethylated DMR annotations
+   - Extracts repeat information (name, class, family) from annotations
+   - Analyzes the distribution of repeat classes and families
+   - Identifies unique and shared repeats between hyper/hypo DMRs
+   - Creates Venn diagrams showing overlap between hyper/hypo DMRs
+   - Generates heatmaps of read counts in DMRs
+   - Links differential methylation status with differential expression status (hypo_significantDE_repeats.tab, hyper_significantDE_repeats.tab), NA in the DE_status column indicates not enough reads for differential expression analysis.
+
+5. ERV-specific Analysis
+   - Filters for ERV-specific repeats in the DMR data
+   - Counts ERV/LTR classes in hyper and hypo DMRs
+   - Creates Venn diagrams showing overlap of ERV elements
+   - Generates heatmaps specifically for ERV elements
+   - Saves results in context-specific directories
+
+Key Outputs
+-----------
+1. Differential Expression Analysis:
+   - Volcano plots ("volcano_plot_[treatment]_vs_[control].pdf"):
+     * Displays log fold change vs -log10(p-value)
+     * Highlights significantly differentially expressed genes
+     * Specifically labels ERV elements that are differentially expressed
+     * Red points indicate upregulated genes, blue points indicate downregulated genes
+
+   - DE gene heatmaps ("DE_genes_heatmap_[treatment]_vs_[control].pdf"):
+     * Shows expression patterns of differentially expressed genes
+     * Row-scaled to highlight relative expression changes
+     * Annotated with differential expression status (Up/Down)
+     * Hierarchical clustering to group genes with similar expression patterns
+
+   - ERV DE gene heatmaps ("ERV_DE_genes_heatmap_[treatment]_vs_[control].pdf"):
+     * Focused visualization of differentially expressed ERV elements
+     * Uses the same color scheme and annotations as the general DE heatmap
+     * Provides insight into radiation-responsive ERV elements
+
+2. Heatmaps:
+   - Overall RNA-seq read counts heatmap ("total_rnaseq_readCounts_in_repeats_heatmap.pdf"):
+     * Displays log-transformed (log(counts + 1)) read counts for all samples
+     * Rows represent repeat elements, columns represent samples
+     * Samples are annotated by metadata variables
+     * Clustering is applied to both rows and columns to identify patterns
+     * Row names are hidden due to large number of features (> 100)
+     * Uses raster=TRUE for efficient rendering of large datasets
+
+   - Read counts in differentially methylated repeats ("Read_counts_in_repeat_heatmap.pdf"):
+     * Generated for CG methylation context
+     * Displays only repeats found in DMRs (both hyper and hypo)
+     * Row annotation indicates whether repeats are unique to hypermethylated regions, 
+       unique to hypomethylated regions, or shared between both
+     * Additional annotation shows differential expression status (Up, Down, Not Significant)
+     * Uses hierarchical clustering to group similar expression patterns
+     * Columns are annotated with sample metadata
+     * Uses a distinct color scheme: #E41A1C for Hyper Unique, #377EB8 for Hypo Unique, 
+       #4DAF4A for Shared, magenta for upregulated, cyan for downregulated
+
+   - Read counts in differentially methylated ERVs ("Read_counts_in_ERV_heatmap.pdf"):
+     * Similar to the DMR repeat heatmap but filtered specifically for ERV elements
+     * Shows expression patterns of ERV elements found in differentially methylated regions
+     * Row annotation indicates methylation status (hyper-unique, hypo-unique, or shared)
+     * Additional annotation shows differential expression status
+     * Provides focused visualization of ERV-specific expression patterns
+     * Generated for CG methylation context
+
+3. Venn Diagrams:
+   - Overlap between hypermethylated and hypomethylated repeats ("repeat_overlap.png"):
+     * Two-set Venn diagram showing unique and shared repeat elements
+     * Red circle represents repeats in hypermethylated regions
+     * Blue circle represents repeats in hypomethylated regions
+     * Overlap shows repeats found in both hyper and hypo DMRs
+     * Includes counts for each region and the intersection
+     * Generated for CG methylation context
+
+   - Overlap between hypermethylated and hypomethylated ERVs ("erv_repeat_overlap.png"):
+     * Focuses specifically on ERV elements within the DMRs
+     * Shows the distribution of ERVs between hyper and hypo methylated regions
+     * Uses consistent color scheme (red for hyper, blue for hypo)
+     * Includes counts of unique and shared ERV elements
+     * Helps visualize whether ERVs tend to be hyper or hypomethylated
+     * Generated for CG methylation context
+
+4. Statistical Summaries:
+   - Counts of differentially expressed genes for each treatment vs control comparison
+   - Counts of differentially expressed ERV elements
+   - Counts of repeat classes and families in DMRs
+   - Counts of ERV-specific elements in DMRs
+   - Counts of unique and shared elements between hyper/hypo DMRs
+
+Technical Notes
+--------------
+- The analysis handles potential inconsistencies in the DMR annotation files using parameters like fill=TRUE
+- Data is log-transformed for better visualization
+- The script creates separate output directories for each treatment and methylation context
+- Differential expression analysis uses edgeR with FDR < 0.05 as significance threshold
+- Visualizations use the pheatmap and VennDiagram packages
+- The analysis focuses particularly on ERV elements within the repeat annotations
+- Color schemes are consistent across visualizations for easier interpretation
+- Log files generated by VennDiagram are automatically removed to keep directories clean
