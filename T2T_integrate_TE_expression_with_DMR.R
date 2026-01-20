@@ -11,7 +11,7 @@ library(GenomicRanges)
 library(plyranges)
 library(GenomicFeatures)
 library(ChIPseeker)
-# Create TxDb from GFF3
+# Create TxDb from GTF
 txdb <- makeTxDbFromGFF("C:/PROJECTS/resource/T2T_CHM13/Homo_sapiens-GCA_009914755.4-2022_07-genes.gtf",
                         format = "gtf",
                         organism = "Homo sapiens")
