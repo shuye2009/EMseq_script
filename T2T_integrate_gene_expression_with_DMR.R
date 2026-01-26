@@ -79,12 +79,15 @@ for(sample_name in sample_names){
 
     # import DMRs and TE annotations
     dmr <- read_tsv(file.path(working_dir, "DMR_table.tsv")) %>%
-        mutate(direction = ifelse(stat > 0, "Hypermethylated", "Hypomethylated"))
+        mutate(direction = case_when(
+            stat > 0 & pval < 0.05 ~ "Hypermethylated", 
+            stat < 0 & pval < 0.05 ~ "Hypomethylated",
+            TRUE ~ "Not_significant"))
 
     # annotate DMRs
     dmr_gr <- makeGRangesFromDataFrame(dmr, keep.extra.columns = TRUE)
     dmrAnno <- annotatePeak(dmr_gr, 
-                         tssRegion=c(-1000, 0),
+                         tssRegion=c(-2000, 500),
                          TxDb=txdb, 
                          annoDb="org.Hs.eg.db")
 
@@ -92,14 +95,15 @@ for(sample_name in sample_names){
     print(dmrAnno)
     annotated_dmr <- as.data.frame(dmrAnno) %>%
         mutate(annotation = gsub(" \\(.+\\)", "", annotation))
-    
+
     # Map T2T gene IDs to gene symbols using the GTF mapping
     annotated_dmr <- annotated_dmr %>%
         left_join(gene_mapping, by = c("geneId" = "gene_id"))
+    head(annotated_dmr)
     
     message("Mapped ", sum(!is.na(annotated_dmr$gene_name)), " out of ", nrow(annotated_dmr), " DMRs to gene symbols")
     
-    gene_dmr_overlap <- full_join(dge, annotated_dmr, by = "gene_name")
+    gene_dmr_overlap <- inner_join(dge, annotated_dmr, by = "gene_name")
 
     head(gene_dmr_overlap)
 
@@ -112,18 +116,16 @@ for(sample_name in sample_names){
     message("Rows with padj < 0.05: ", sum(gene_dmr_overlap$padj < 0.05, na.rm = TRUE))
     message("Rows with |log2FC| > 1: ", sum(abs(gene_dmr_overlap$log2FoldChange) > 1, na.rm = TRUE))
     
-    # Filter for genes that overlap with DMRs (non-NA DMR columns indicate overlap)
-    gene_dmr_overlap_filtered <- gene_dmr_overlap %>%
-        filter(!is.na(seqnames)) 
-    write.xlsx(gene_dmr_overlap_filtered, paste0(output_dir, "/gene_expression_in_DMR.xlsx"))
-    message("Rows after filtering: ", nrow(gene_dmr_overlap_filtered))
     
-    if(nrow(gene_dmr_overlap_filtered) == 0){
+    write.xlsx(gene_dmr_overlap, paste0(output_dir, "/gene_expression_in_DMR.xlsx"))
+    message("Rows after filtering: ", nrow(gene_dmr_overlap))
+    
+    if(nrow(gene_dmr_overlap) == 0){
         message("No significant gene overlap with DMRs for ", sample_name)
         next
     }
     # Count distinct gene by regulation, and methylation status
-    dmr_gene_counts <- gene_dmr_overlap_filtered %>%
+    dmr_gene_counts <- gene_dmr_overlap %>%
         group_by(annotation, regulation, direction) %>%
         summarise(count = n_distinct(gene_name), .groups = "drop") %>%
         mutate(regulation = as.character(regulation),
@@ -133,21 +135,21 @@ for(sample_name in sample_names){
     all_combinations <- expand.grid(
         annotation = unique(dmr_gene_counts$annotation),
         regulation = c("Up-regulated", "Down-regulated", "No-change"),
-        direction = c("Hypermethylated", "Hypomethylated"),
+        direction = c("Hypermethylated", "Hypomethylated", "Not_significant"),
         stringsAsFactors = FALSE
     )
     
     dmr_gene_counts_complete <- all_combinations %>%
         left_join(dmr_gene_counts, by = c("annotation", "regulation", "direction")) %>%
         replace_na(list(count = 0)) %>%
-        arrange(desc(count))
+        arrange(annotation, regulation, direction)
     
     
     # Create faceted bar chart
     p_dmr <- ggplot(dmr_gene_counts_complete, 
                     aes(x = annotation, y = count, fill = regulation)) +
         geom_bar(stat = "identity", position = "dodge") +
-        facet_wrap(~direction, ncol = 2) +
+        facet_wrap(~direction, ncol = 3) +
         scale_fill_manual(values = c("Up-regulated" = "#E74C3C", "Down-regulated" = "#3498DB", "No-change" = "#95A5A6")) +
         labs(title = sample_name,
              x = "",
@@ -166,17 +168,55 @@ for(sample_name in sample_names){
            plot = p_dmr, width = 14, height = 6)
     ggsave(paste0(output_dir, "/gene_expression_in_DMR_barplot_faceted.png"), 
            plot = p_dmr, width = 14, height = 6, dpi = 300)
-    
-    # Save overlap table
-    gene_dmr_overlap_filtered <- gene_dmr_overlap_filtered %>%
-        dplyr::filter(regulation != "No-change") %>%
-        dplyr::select(c("gene_name", "log2FoldChange", "padj", "regulation", "direction")) %>%
-        dplyr::arrange(regulation, direction) %>%
-        dplyr::distinct()
-    write.xlsx(gene_dmr_overlap_filtered, paste0(output_dir, "/regulated_gene_expression_in_DMR.xlsx"))
     gene_expression_dmr_plot_list[[sample_name]] <- p_dmr
-    
     message("Created DMR overlap bar chart and saved counts for ", sample_name)
+
+    # Filter overlap to only show regulated and hyper/hypo-methylated genes and the dmr annotation is "Promoter"
+    gene_dmr_summary_promoter <- gene_dmr_overlap %>%
+        filter(annotation == "Promoter", regulation %in% c("Up-regulated", "Down-regulated"), direction %in% c("Hypomethylated", "Hypermethylated")) %>%
+        group_by(gene_name, annotation, regulation) %>%
+        summarise(
+            n_hypo = sum(direction == "Hypomethylated"),
+            n_hyper = sum(direction == "Hypermethylated"),
+            .groups = "drop"
+        ) %>%
+        mutate(methylation_status = case_when(
+            n_hypo > n_hyper ~ "Hypomethylated",
+            n_hyper > n_hypo ~ "Hypermethylated",
+            n_hypo == n_hyper ~ "Mixed"
+        )) %>%
+        mutate(comparison = sample_name) %>%
+        mutate(regulation = factor(regulation, levels = c("Up-regulated", "Down-regulated"))) %>%
+        mutate(methylation_status = factor(methylation_status, levels = c("Hypomethylated", "Hypermethylated", "Mixed")))
+
+
+    write.xlsx(gene_dmr_summary_promoter, paste0(output_dir, "/regulated_gene_expression_in_DMR_promoter.xlsx"))
+    
+    # Create contingency table: regulation (rows) vs methylation status (columns)
+    cor_count <- as.matrix(table(gene_dmr_summary_promoter$regulation, gene_dmr_summary_promoter$methylation_status))
+    message("\nContingency table for ", sample_name, ":")
+    print(cor_count)
+    cor_count <- cor_count[, -which(colnames(cor_count) == "Mixed")]
+    
+    # Perform Fisher's exact test on the full contingency table
+    # Tests if there's an association between regulation type and methylation status
+    if(all(rowSums(cor_count) > 0) && all(colSums(cor_count) > 0)) {
+        fisher_test_result <- fisher.test(cor_count, simulate.p.value = TRUE)
+        message("\nFisher's Exact Test Results:")
+        message("P-value: ", format(fisher_test_result$p.value, scientific = TRUE, digits = 3))
+        print(fisher_test_result)
+        
+        # Save the test results
+        fisher_results_df <- data.frame(
+            comparison = sample_name,
+            p_value = fisher_test_result$p.value,
+            method = fisher_test_result$method
+        )
+        write.xlsx(list(
+            contingency_table = as.data.frame(cor_count),
+            fisher_test = fisher_results_df
+        ), paste0(output_dir, "/promoter_methylation_expression_fisher_test.xlsx"))
+    }
 
     # only plot regulated TE expression in DMR
     regulated_dmr <- dmr_gene_counts_complete %>%
@@ -186,7 +226,7 @@ for(sample_name in sample_names){
     p_regulated_dmr <- ggplot(regulated_dmr, 
                     aes(x = annotation, y = count, fill = regulation)) +
         geom_bar(stat = "identity", position = "dodge") +
-        facet_wrap(~direction, ncol = 2) +
+        facet_wrap(~direction, ncol = 3) +
         scale_fill_manual(values = c("Up-regulated" = "#E74C3C", "Down-regulated" = "#3498DB")) +
         labs(title = sample_name,
              x = "",
@@ -197,8 +237,7 @@ for(sample_name in sample_names){
               plot.title = element_text(hjust = 0.5, face = "bold"),
               legend.position = "top",
               strip.background = element_rect(fill = "gray90"),
-              strip.text = element_text(face = "bold")) +
-        ylim(0, 200)
+              strip.text = element_text(face = "bold")) 
     
     # Save plot
     ggsave(paste0(output_dir, "/gene_regulated_in_DMR_barplot_faceted.pdf"), 
