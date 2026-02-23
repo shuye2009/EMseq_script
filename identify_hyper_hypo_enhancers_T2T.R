@@ -23,11 +23,11 @@ output_dir <- "C:/PROJECTS/Shane/Harding_250611/T2T_CHM13/EMseq/Enhancer_methyla
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 # Targeted file suffix pattern
-targeted_suffix <- "significant_diff_ENCFF912FUA_MCF10A_element_gene_links_thresholded_Engreitz_T2T_6col.tab"
+targeted_suffix <- "all_diff_ENCFF912FUA_MCF10A_element_gene_links_thresholded_Engreitz_T2T_6col.tab"
 
 # Filtering Thresholds
 dmrseq_pval_cutoff <- 0.05
-dmrseq_beta_cutoff <- 0.5
+dmrseq_beta_cutoff <- 0.25
 
 targeted_pval_cutoff <- 0.05
 targeted_diff_cutoff <- 10
@@ -294,15 +294,113 @@ for (comp in comparisons) {
            sep = "\t", col.names = FALSE)
   }
   
+  # ----------------------------------------------------------------------------
+  # Count Regulated Genes
+  # ----------------------------------------------------------------------------
+  count_reg_genes <- function(df) {
+    if (is.null(df) || !"Regulated_TargetGenes" %in% colnames(df)) return(c(Up = 0, Down = 0))
+    
+    # Get column, remove NAs and empty strings
+    vals <- na.omit(df$Regulated_TargetGenes)
+    vals <- vals[vals != ""]
+    
+    if (length(vals) == 0) return(c(Up = 0, Down = 0))
+    
+    # Split multiple genes: "GeneA(Up), GeneB(Down)"
+    all_entries <- unlist(strsplit(vals, ", "))
+    # Unique genes per enhancer set
+    unique_entries <- unique(all_entries)
+    
+    n_up <- sum(grepl("\\(Up\\)$", unique_entries))
+    n_down <- sum(grepl("\\(Down\\)$", unique_entries))
+    
+    return(c(Up = n_up, Down = n_down))
+  }
+  
+  hyper_counts <- count_reg_genes(hyper_combined)
+  hypo_counts <- count_reg_genes(hypo_combined)
+
+  # ----------------------------------------------------------------------------
+  # Fisher's Exact Test for Gene Regulation & Enhancer Methylation
+  # ----------------------------------------------------------------------------
+  # Only run if there are regulated genes in either enhancer set
+  if (hypo_counts["Up"] > 0 || hypo_counts["Down"] > 0 || hyper_counts["Up"] > 0 || hyper_counts["Down"] > 0) {
+    
+    # The counts from summary_stats are based on unique genes, which is what we need.
+    # Use these counts directly for the contingency table.
+    # Matrix is filled by row to match the desired table structure.
+    a <- hypo_counts["Up"]    # Hypo & Up
+    b <- hypo_counts["Down"]  # Hypo & Down
+    c <- hyper_counts["Up"]   # Hyper & Up
+    d <- hyper_counts["Down"] # Hyper & Down
+    
+    # Ensure all counts are non-negative
+    counts <- matrix(c(a, b, c, d), nrow = 2, byrow = TRUE, # Fill by row
+                     dimnames = list(Enhancer_Methylation = c("Hypomethylated", "Hypermethylated"),
+                                     Gene_Regulation = c("Upregulated", "Downregulated")))
+    
+    # Perform Fisher's exact test
+    fisher_res <- fisher.test(counts)
+    
+    # Write results to a text file
+    out_file_fisher <- file.path(output_dir, paste0(comp, "_Fisher_Exact_Methylation_vs_Regulation.txt"))
+    sink(out_file_fisher)
+    cat("Fisher's Exact Test 1: Association between Enhancer Methylation and Gene Regulation\n")
+    cat("Comparison: ", comp, "\n\n")
+    cat("Contingency Table:\n")
+    print(counts)
+    cat("\n")
+    cat("P-value: ", fisher_res$p.value, "\n")
+    cat("Odds Ratio: ", fisher_res$estimate, "\n")
+    cat("95% CI: [", fisher_res$conf.int[1], ", ", fisher_res$conf.int[2], "]\n")
+    
+    # ==============================================================================
+    # Second Fisher's Exact Test: Downregulated Genes & Hypermethylated Enhancers
+    # ==============================================================================
+    # Construct a 2x2 table focusing on the association between downregulation and hypermethylation
+    # Rows: Hypermethylated vs. Not Hypermethylated (i.e., Hypomethylated)
+    # Columns: Downregulated vs. Not Downregulated (i.e., Upregulated)
+    
+    a_hyper_down <- hyper_counts["Down"]   # Hyper & Down
+    b_hyper_up   <- hyper_counts["Up"]     # Hyper & Up (Not Down)
+    c_hypo_down  <- hypo_counts["Down"]    # Not Hyper & Down
+    d_hypo_up    <- hypo_counts["Up"]      # Not Hyper & Not Down (Up)
+    
+    counts_hyper_down <- matrix(c(a_hyper_down, b_hyper_up, c_hypo_down, d_hypo_up), nrow = 2, byrow = TRUE,
+                                dimnames = list(Hypermethylated_Enhancer = c("Yes", "No"),
+                                                Downregulated_Gene = c("Yes", "No")))
+    
+    fisher_res_hyper_down <- fisher.test(counts_hyper_down)
+    
+    cat("\n\n")
+    cat("Fisher's Exact Test 2: Association between Downregulated Genes and Hypermethylated Enhancers\n")
+    cat("Comparison: ", comp, "\n\n")
+    cat("Contingency Table:\n")
+    print(counts_hyper_down)
+    cat("\n")
+    cat("P-value: ", fisher_res_hyper_down$p.value, "\n")
+    cat("Odds Ratio: ", fisher_res_hyper_down$estimate, "\n")
+    cat("95% CI: [", fisher_res_hyper_down$conf.int[1], ", ", fisher_res_hyper_down$conf.int[2], "]\n")
+    
+    sink()
+    
+    message("  Fisher's exact test results saved to: ", basename(out_file_fisher))
+  }
+
   # Collect Stats
   summary_stats[[comp]] <- data.frame(
     Comparison = comp,
     Hyper_dmrseq = length(dmrseq_hyper_enhancers),
     Hyper_Targeted = length(targeted_hyper_enhancers),
     Hyper_Union = ifelse(is.null(hyper_combined), 0, nrow(hyper_combined)),
+    Hyper_Genes_Up = hyper_counts["Up"],
+    Hyper_Genes_Down = hyper_counts["Down"],
+    
     Hypo_dmrseq = length(dmrseq_hypo_enhancers),
     Hypo_Targeted = length(targeted_hypo_enhancers),
-    Hypo_Union = ifelse(is.null(hypo_combined), 0, nrow(hypo_combined))
+    Hypo_Union = ifelse(is.null(hypo_combined), 0, nrow(hypo_combined)),
+    Hypo_Genes_Up = hypo_counts["Up"],
+    Hypo_Genes_Down = hypo_counts["Down"]
   )
 }
 

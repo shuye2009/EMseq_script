@@ -97,6 +97,8 @@ export(all_features, "Homo_sapiens-GCA_009914755.4-2022_07-genes.gtf",
 
 # convert bed to gtf
 bed_repeat <- read_tsv("chm13v2.0_RepeatMasker_4.1.2p1.2022Apr14.bed", col_names = FALSE)
+# Filter out rows with NA coordinates
+bed_repeat <- bed_repeat[!is.na(bed_repeat$X2) & !is.na(bed_repeat$X3), ]
 
 # Modify duplicated entries in X4 column
 bed_repeat <- bed_repeat %>%
@@ -106,11 +108,15 @@ bed_repeat <- bed_repeat %>%
                       paste0(X4, "_dup", dup_count), 
                       X4)) %>%
   ungroup() %>%
-  select(-dup_count) %>%
-  mutate(X4 = X4dup) %>%
-  select(-X4dup)
+  dplyr::select(-dup_count) %>%
+  dplyr::mutate(X4 = X4dup) %>%
+  dplyr::select(-X4dup)
 write_tsv(bed_repeat, "chm13v2.0_RepeatMasker_4.1.2p1.2022Apr14_dup.bed", col_names = FALSE)
+bed_repeat_6col <- bed_repeat[,c(1:6)]
+write_tsv(bed_repeat_6col, "chm13v2.0_RepeatMasker_4.1.2p1.2022Apr14_dup_6col.bed", col_names = FALSE)
 # Convert to GRanges for GTF export
+
+
 bed_repeat_gr <- GRanges(
   seqnames = bed_repeat$X1,
   ranges = IRanges(start = bed_repeat$X2 + 1, end = bed_repeat$X3),  # BED is 0-based, GTF is 1-based
@@ -122,7 +128,7 @@ bed_repeat_gr$source <- "RepeatMasker"
 bed_repeat_gr$type <- "exon"
 bed_repeat_gr$biotype <- "repeat"
 bed_repeat_gr$gene_id <- bed_repeat$X4
-bed_repeat_gr$transcript_id <- bed_repeat$X4dup
+bed_repeat_gr$transcript_id <- bed_repeat$X4
 bed_repeat_gr$family_id <- bed_repeat$X8
 bed_repeat_gr$class_id <- bed_repeat$X7
 bed_repeat_gr$gene_name <- paste0(bed_repeat$X4, ":TE")
@@ -135,6 +141,8 @@ censat <- read_tsv("chm13v2.0_censat_v2.1.bed", col_names = FALSE)
 
 # Replace ; with : only inside parentheses which causes parsing error for STAR and RSEM
 replace_semicolon_in_brackets <- function(x) {
+  if (is.na(x) || is.null(x) || x == "") return(x)
+  
   chars <- strsplit(x, "", fixed = TRUE)[[1]]
   in_bracket <- FALSE
   for (i in seq_along(chars)) {
@@ -147,9 +155,12 @@ replace_semicolon_in_brackets <- function(x) {
 
 censat$X4_clean <- sapply(censat$X4, replace_semicolon_in_brackets)
 
+# Filter out rows with NA coordinates
+censat_clean <- censat[!is.na(censat$X2) & !is.na(censat$X3), ]
+
 censat_gr <- GRanges(
-  seqnames = censat$X1,
-  ranges = IRanges(start = censat$X2 + 1, end = censat$X3),
+  seqnames = censat_clean$X1,
+  ranges = IRanges(start = censat_clean$X2 + 1, end = censat_clean$X3),
   strand = "+"
 )
 
@@ -157,9 +168,9 @@ censat_gr <- GRanges(
 censat_gr$source <- "T2T_CHM13"
 censat_gr$type <- "exon"
 censat_gr$biotype <- "censat"
-censat_gr$gene_id <- censat$X4_clean
-censat_gr$transcript_id <- censat$X4_clean
-censat_gr$gene_name <- paste0(censat$X4_clean, ":T2T")
+censat_gr$gene_id <- censat_clean$X4_clean
+censat_gr$transcript_id <- censat_clean$X4_clean
+censat_gr$gene_name <- paste0(censat_clean$X4_clean, ":T2T")
 
 export(censat_gr, "chm13v2.0_censat_v2.1.gtf", format = "gtf")
 
