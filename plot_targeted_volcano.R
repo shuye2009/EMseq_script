@@ -10,7 +10,8 @@ library(dplyr)
 # Define analysis types and their base directories
 analyses <- list(
   "Enhancer" = "C:/PROJECTS/Shane/Harding_250611/T2T_CHM13/EMseq/Enhancer_targeted",
-  "Promoter" = "C:/PROJECTS/Shane/Harding_250611/T2T_CHM13/EMseq/Promoter_targeted"
+  "Promoter" = "C:/PROJECTS/Shane/Harding_250611/T2T_CHM13/EMseq/Promoter_targeted",
+  "Centromere" = "C:/PROJECTS/Shane/Harding_250611/T2T_CHM13/EMseq/Centromere_targeted"
 )
 
 # Thresholds for coloring
