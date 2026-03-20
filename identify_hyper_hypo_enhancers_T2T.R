@@ -1,11 +1,40 @@
 
-library(GenomicRanges)
-library(data.table)
-library(openxlsx)
-library(dplyr)
-library(tidyr)
-library(stringr)
-library(rtracklayer)
+# ==============================================================================
+# Package Installation and Loading
+# ==============================================================================
+
+# Function to check and install CRAN packages
+install_if_missing <- function(pkg) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    message("Installing package: ", pkg)
+    install.packages(pkg, dependencies = TRUE)
+    library(pkg, character.only = TRUE)
+  }
+}
+
+# Function to check and install Bioconductor packages
+install_bioc_if_missing <- function(pkg) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    message("Installing Bioconductor package: ", pkg)
+    if (!requireNamespace("BiocManager", quietly = TRUE)) {
+      install.packages("BiocManager")
+    }
+    BiocManager::install(pkg)
+    library(pkg, character.only = TRUE)
+  }
+}
+
+# Install and load CRAN packages
+cran_packages <- c("data.table", "openxlsx", "dplyr", "tidyr", "stringr")
+for (pkg in cran_packages) {
+  install_if_missing(pkg)
+}
+
+# Install and load Bioconductor packages
+bioc_packages <- c("GenomicRanges", "rtracklayer", "clusterProfiler", "org.Hs.eg.db")
+for (pkg in bioc_packages) {
+  install_bioc_if_missing(pkg)
+}
 
 # ==============================================================================
 # Settings and Paths
@@ -41,6 +70,8 @@ rnaseq_lfc_cutoff <- 1
 message("Loading Enhancer Annotations...")
 # Expecting standard 6-column BED: chrom, start, end, name, score, strand
 enhancers <- import(enhancer_bed_file, format = "BED")
+message("  Total enhancers loaded: ", length(enhancers))
+message("  Sample enhancer names from BED: ", paste(head(enhancers$name, 3), collapse = ", "))
 # Ensure names are unique or usable as IDs
 if (any(duplicated(enhancers$name))) {
   warning("Duplicate enhancer names found. Using unique coordinates as fallback IDs if needed.")
@@ -137,6 +168,8 @@ for (comp in comparisons) {
   # ----------------------------------------------------------------------------
   dmrseq_hyper_enhancers <- character()
   dmrseq_hypo_enhancers  <- character()
+  dmrseq_hyper_dmr_info <- list()
+  dmrseq_hypo_dmr_info <- list()
   
   # Try loading DMR table (tsv preferred) or annotated xlsx
   dmr_table_path <- file.path(dmrseq_base_dir, comp, "DMR", "DMR_table.tsv")
@@ -156,14 +189,92 @@ for (comp in comparisons) {
       # Convert to GRanges
       if (nrow(hyper_dmrs) > 0) {
         hyper_gr <- makeGRangesFromDataFrame(hyper_dmrs, keep.extra.columns = TRUE)
-        overlaps <- findOverlaps(enhancers, hyper_gr)
-        dmrseq_hyper_enhancers <- unique(enhancers$name[queryHits(overlaps)])
+        overlaps <- findOverlaps(enhancers, hyper_gr, minoverlap = min(width(hyper_gr)))
+        
+        if (length(overlaps) > 0) {
+          # Calculate overlap widths
+          enh_hits <- enhancers[queryHits(overlaps)]
+          dmr_hits <- hyper_gr[subjectHits(overlaps)]
+          overlap_ranges <- pintersect(enh_hits, dmr_hits)
+          overlap_widths <- width(overlap_ranges)
+          
+          # Store DMR info for each enhancer
+          for (i in seq_along(overlaps)) {
+            enh_name <- enhancers$name[queryHits(overlaps)[i]]
+            dmr_chr <- as.character(seqnames(dmr_hits[i]))
+            dmr_start <- start(dmr_hits[i])
+            dmr_end <- end(dmr_hits[i])
+            dmr_width <- width(dmr_hits[i])
+            ovlp_width <- overlap_widths[i]
+            
+            dmr_string <- paste0(dmr_chr, ":", dmr_start, "-", dmr_end)
+            
+            if (is.null(dmrseq_hyper_dmr_info[[enh_name]])) {
+              dmrseq_hyper_dmr_info[[enh_name]] <- list(
+                dmr_coords = dmr_string,
+                dmr_widths = dmr_width,
+                overlap_widths = ovlp_width
+              )
+            } else {
+              dmrseq_hyper_dmr_info[[enh_name]]$dmr_coords <- c(
+                dmrseq_hyper_dmr_info[[enh_name]]$dmr_coords, dmr_string
+              )
+              dmrseq_hyper_dmr_info[[enh_name]]$dmr_widths <- c(
+                dmrseq_hyper_dmr_info[[enh_name]]$dmr_widths, dmr_width
+              )
+              dmrseq_hyper_dmr_info[[enh_name]]$overlap_widths <- c(
+                dmrseq_hyper_dmr_info[[enh_name]]$overlap_widths, ovlp_width
+              )
+            }
+          }
+          
+          dmrseq_hyper_enhancers <- unique(enhancers$name[queryHits(overlaps)])
+        }
       }
       
       if (nrow(hypo_dmrs) > 0) {
         hypo_gr <- makeGRangesFromDataFrame(hypo_dmrs, keep.extra.columns = TRUE)
-        overlaps <- findOverlaps(enhancers, hypo_gr)
-        dmrseq_hypo_enhancers <- unique(enhancers$name[queryHits(overlaps)])
+        overlaps <- findOverlaps(enhancers, hypo_gr, minoverlap = min(width(hypo_gr)))
+        
+        if (length(overlaps) > 0) {
+          # Calculate overlap widths
+          enh_hits <- enhancers[queryHits(overlaps)]
+          dmr_hits <- hypo_gr[subjectHits(overlaps)]
+          overlap_ranges <- pintersect(enh_hits, dmr_hits)
+          overlap_widths <- width(overlap_ranges)
+          
+          # Store DMR info for each enhancer
+          for (i in seq_along(overlaps)) {
+            enh_name <- enhancers$name[queryHits(overlaps)[i]]
+            dmr_chr <- as.character(seqnames(dmr_hits[i]))
+            dmr_start <- start(dmr_hits[i])
+            dmr_end <- end(dmr_hits[i])
+            dmr_width <- width(dmr_hits[i])
+            ovlp_width <- overlap_widths[i]
+            
+            dmr_string <- paste0(dmr_chr, ":", dmr_start, "-", dmr_end)
+            
+            if (is.null(dmrseq_hypo_dmr_info[[enh_name]])) {
+              dmrseq_hypo_dmr_info[[enh_name]] <- list(
+                dmr_coords = dmr_string,
+                dmr_widths = dmr_width,
+                overlap_widths = ovlp_width
+              )
+            } else {
+              dmrseq_hypo_dmr_info[[enh_name]]$dmr_coords <- c(
+                dmrseq_hypo_dmr_info[[enh_name]]$dmr_coords, dmr_string
+              )
+              dmrseq_hypo_dmr_info[[enh_name]]$dmr_widths <- c(
+                dmrseq_hypo_dmr_info[[enh_name]]$dmr_widths, dmr_width
+              )
+              dmrseq_hypo_dmr_info[[enh_name]]$overlap_widths <- c(
+                dmrseq_hypo_dmr_info[[enh_name]]$overlap_widths, ovlp_width
+              )
+            }
+          }
+          
+          dmrseq_hypo_enhancers <- unique(enhancers$name[queryHits(overlaps)])
+        }
       }
     }
   } else {
@@ -171,7 +282,14 @@ for (comp in comparisons) {
   }
   
   message("    dmrseq Hyper Enhancers: ", length(dmrseq_hyper_enhancers))
+  if (length(dmrseq_hyper_enhancers) > 0) {
+    message("      Sample dmrseq Hyper names: ", paste(head(dmrseq_hyper_enhancers, 3), collapse = ", "))
+    message("      Class: ", class(dmrseq_hyper_enhancers), ", Type: ", typeof(dmrseq_hyper_enhancers))
+  }
   message("    dmrseq Hypo Enhancers:  ", length(dmrseq_hypo_enhancers))
+  if (length(dmrseq_hypo_enhancers) > 0) {
+    message("      Sample dmrseq Hypo names: ", paste(head(dmrseq_hypo_enhancers, 3), collapse = ", "))
+  }
   
   # ----------------------------------------------------------------------------
   # 2. Process Targeted Results
@@ -185,6 +303,11 @@ for (comp in comparisons) {
     message("  Loading targeted results...")
     # These files usually contain ONLY significant differences
     targeted_res <- fread(targeted_file)
+    message("    Total rows in targeted file: ", nrow(targeted_res))
+    if (nrow(targeted_res) > 0) {
+      message("    Columns in targeted file: ", paste(colnames(targeted_res), collapse = ", "))
+      message("    Sample 'name' values from targeted file: ", paste(head(targeted_res$name, 3), collapse = ", "))
+    }
     
     if (nrow(targeted_res) > 0) {
       # Filter based on thresholds
@@ -200,39 +323,147 @@ for (comp in comparisons) {
   }
   
   message("    Targeted Hyper Enhancers: ", length(targeted_hyper_enhancers))
+  if (length(targeted_hyper_enhancers) > 0) {
+    message("      Sample Targeted Hyper names: ", paste(head(targeted_hyper_enhancers, 3), collapse = ", "))
+    message("      Class: ", class(targeted_hyper_enhancers), ", Type: ", typeof(targeted_hyper_enhancers))
+    
+    # Check if any dmrseq names exist in the targeted list
+    if (length(dmrseq_hyper_enhancers) > 0) {
+      check_names <- head(dmrseq_hyper_enhancers, 5)
+      matches <- check_names %in% targeted_hyper_enhancers
+      message("      Checking if dmrseq names exist in targeted: ", paste(check_names, "=", matches, collapse = "; "))
+    }
+  }
   message("    Targeted Hypo Enhancers:  ", length(targeted_hypo_enhancers))
+  if (length(targeted_hypo_enhancers) > 0) {
+    message("      Sample Targeted Hypo names: ", paste(head(targeted_hypo_enhancers, 3), collapse = ", "))
+  }
   
   # ----------------------------------------------------------------------------
   # 3. Union and Classify
   # ----------------------------------------------------------------------------
   
-  # Function to combine and classify
+  # Function to combine and classify using coordinate-based matching
   combine_results <- function(dmrseq_ids, targeted_ids) {
     all_ids <- unique(c(dmrseq_ids, targeted_ids))
     if (length(all_ids) == 0) return(NULL)
     
+    # Parse coordinates from name strings (format: chr:start-end)
+    parse_coords <- function(name_vec) {
+      if (length(name_vec) == 0) return(NULL)
+      parts <- strsplit(name_vec, "[:-]")
+      data.frame(
+        name = name_vec,
+        chr = sapply(parts, `[`, 1),
+        start = as.integer(sapply(parts, `[`, 2)),
+        end = as.integer(sapply(parts, `[`, 3)),
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    dmrseq_coords <- parse_coords(dmrseq_ids)
+    targeted_coords <- parse_coords(targeted_ids)
+    
+    # Create result dataframe
     res <- data.frame(name = all_ids, source = "NA", stringsAsFactors = FALSE)
     
-    in_dmrseq <- all_ids %in% dmrseq_ids
-    in_targeted <- all_ids %in% targeted_ids
-    
-    res$source[in_dmrseq & in_targeted] <- "Both"
-    res$source[in_dmrseq & !in_targeted] <- "dmrseq_only"
-    res$source[!in_dmrseq & in_targeted] <- "Targeted_only"
+    # For each enhancer, check if it's in dmrseq, targeted, or both
+    # Use coordinate overlap with tolerance for off-by-one errors
+    for (i in seq_len(nrow(res))) {
+      enh_name <- res$name[i]
+      
+      # Check if in dmrseq
+      in_dmrseq <- enh_name %in% dmrseq_ids
+      
+      # Check if in targeted (with coordinate matching)
+      in_targeted <- enh_name %in% targeted_ids
+      
+      # If not exact match, try coordinate-based matching
+      if (!in_dmrseq && !is.null(targeted_coords) && enh_name %in% targeted_coords$name) {
+        # This is a targeted enhancer, check if dmrseq has same region
+        tgt_row <- targeted_coords[targeted_coords$name == enh_name, ]
+        if (!is.null(dmrseq_coords)) {
+          # Check for coordinate overlap (allowing ±2bp tolerance)
+          matches <- dmrseq_coords$chr == tgt_row$chr & 
+                     abs(dmrseq_coords$start - tgt_row$start) <= 2 & 
+                     abs(dmrseq_coords$end - tgt_row$end) <= 2
+          if (any(matches)) {
+            in_dmrseq <- TRUE
+            # Use the dmrseq name as canonical
+            res$name[i] <- dmrseq_coords$name[which(matches)[1]]
+          }
+        }
+      } else if (!in_targeted && !is.null(dmrseq_coords) && enh_name %in% dmrseq_coords$name) {
+        # This is a dmrseq enhancer, check if targeted has same region
+        dmr_row <- dmrseq_coords[dmrseq_coords$name == enh_name, ]
+        if (!is.null(targeted_coords)) {
+          # Check for coordinate overlap (allowing ±2bp tolerance)
+          matches <- targeted_coords$chr == dmr_row$chr & 
+                     abs(targeted_coords$start - dmr_row$start) <= 2 & 
+                     abs(targeted_coords$end - dmr_row$end) <= 2
+          if (any(matches)) {
+            in_targeted <- TRUE
+          }
+        }
+      }
+      
+      # Classify
+      if (in_dmrseq && in_targeted) {
+        res$source[i] <- "Both"
+      } else if (in_dmrseq) {
+        res$source[i] <- "dmrseq_only"
+      } else if (in_targeted) {
+        res$source[i] <- "Targeted_only"
+      }
+    }
     
     return(res)
   }
   
   # Hypermethylated Union
+  message("  Combining Hypermethylated results...")
   hyper_combined <- combine_results(dmrseq_hyper_enhancers, targeted_hyper_enhancers)
   if (!is.null(hyper_combined)) {
-    # Add coordinates - Ensure we only take atomic columns from enhancers_dt
-    # Also ensure name is character to match
-    enh_coords <- enhancers_dt[, .(chrom = as.character(seqnames), start, end, name = as.character(name))]
+    message("    Source distribution: ", paste(names(table(hyper_combined$source)), "=", table(hyper_combined$source), collapse = ", "))
     
-    hyper_combined <- merge(hyper_combined, enh_coords, by = "name", all.x = TRUE)
-    # Add Target Genes
-    hyper_combined <- merge(hyper_combined, gene_map, by = "name", all.x = TRUE)
+    # Add coordinates and target genes using coordinate-based matching
+    hyper_combined$chrom <- NA_character_
+    hyper_combined$start <- NA_integer_
+    hyper_combined$end <- NA_integer_
+    hyper_combined$TargetGenes <- NA_character_
+    
+    for (i in seq_len(nrow(hyper_combined))) {
+      enh_name <- hyper_combined$name[i]
+      
+      # Parse coordinates from name string
+      parts <- strsplit(enh_name, "[:-]")[[1]]
+      if (length(parts) == 3) {
+        query_chr <- parts[1]
+        query_start <- as.integer(parts[2])
+        query_end <- as.integer(parts[3])
+        
+        # Find matching enhancer in BED file (with ±2bp tolerance)
+        matches <- which(
+          as.character(enhancers_dt$seqnames) == query_chr &
+          abs(enhancers_dt$start - query_start) <= 2 &
+          abs(enhancers_dt$end - query_end) <= 2
+        )
+        
+        if (length(matches) > 0) {
+          # Use first match
+          match_idx <- matches[1]
+          hyper_combined$chrom[i] <- as.character(enhancers_dt$seqnames[match_idx])
+          hyper_combined$start[i] <- enhancers_dt$start[match_idx]
+          hyper_combined$end[i] <- enhancers_dt$end[match_idx]
+          
+          # Get target genes for this enhancer
+          enh_name_bed <- as.character(enhancers_dt$name[match_idx])
+          if (enh_name_bed %in% gene_map$name) {
+            hyper_combined$TargetGenes[i] <- gene_map[name == enh_name_bed]$TargetGenes
+          }
+        }
+      }
+    }
     
     # Reorder columns and ensure no list columns
     # Handle missing TargetGenes if any
@@ -241,7 +472,38 @@ for (comp in comparisons) {
     # Annotate Regulated Genes
     hyper_combined$Regulated_TargetGenes <- sapply(hyper_combined$TargetGenes, annotate_rna, reg_map = regulated_genes_map)
     
-    hyper_combined <- hyper_combined[, c("chrom", "start", "end", "name", "source", "TargetGenes", "Regulated_TargetGenes")]
+    # Add enhancer width (1-based inclusive coordinates)
+    hyper_combined$Enhancer_Width <- hyper_combined$end - hyper_combined$start + 1
+    
+    # Add DMR coordinates, widths, overlap widths, and fractions for dmrseq_only and Both
+    hyper_combined$DMR_Coordinates <- NA_character_
+    hyper_combined$DMR_Width <- NA_character_
+    hyper_combined$DMR_Overlap_Width <- NA_character_
+    hyper_combined$Overlap_Fraction <- NA_real_
+    hyper_combined$DMR_Overlap_Fraction <- NA_real_
+    
+    for (i in seq_len(nrow(hyper_combined))) {
+      enh_name <- hyper_combined$name[i]
+      src <- hyper_combined$source[i]
+      
+      if (src %in% c("dmrseq_only", "Both") && enh_name %in% names(dmrseq_hyper_dmr_info)) {
+        dmr_info <- dmrseq_hyper_dmr_info[[enh_name]]
+        hyper_combined$DMR_Coordinates[i] <- paste(dmr_info$dmr_coords, collapse = "; ")
+        hyper_combined$DMR_Width[i] <- paste(dmr_info$dmr_widths, collapse = "; ")
+        hyper_combined$DMR_Overlap_Width[i] <- paste(dmr_info$overlap_widths, collapse = "; ")
+        
+        # Calculate overlap fraction (sum of all overlaps / enhancer width)
+        total_overlap <- sum(dmr_info$overlap_widths)
+        enh_width <- hyper_combined$Enhancer_Width[i]
+        hyper_combined$Overlap_Fraction[i] <- if (enh_width > 0) total_overlap / enh_width else NA_real_
+        
+        # Calculate DMR overlap fraction (sum of overlap widths / sum of DMR widths)
+        total_dmr_width <- sum(dmr_info$dmr_widths)
+        hyper_combined$DMR_Overlap_Fraction[i] <- if (total_dmr_width > 0) total_overlap / total_dmr_width else NA_real_
+      }
+    }
+    
+    hyper_combined <- hyper_combined[, c("chrom", "start", "end", "name", "source", "TargetGenes", "Regulated_TargetGenes", "Enhancer_Width", "DMR_Coordinates", "DMR_Width", "DMR_Overlap_Width", "Overlap_Fraction", "DMR_Overlap_Fraction")]
     
     # Save
     out_file_hyper <- file.path(output_dir, paste0(comp, "_Hypermethylated_Enhancers_Union.csv"))
@@ -261,14 +523,49 @@ for (comp in comparisons) {
   }
   
   # Hypomethylated Union
+  message("  Combining Hypomethylated results...")
   hypo_combined <- combine_results(dmrseq_hypo_enhancers, targeted_hypo_enhancers)
   if (!is.null(hypo_combined)) {
-    # Add coordinates
-    enh_coords <- enhancers_dt[, .(chrom = as.character(seqnames), start, end, name = as.character(name))]
+    message("    Source distribution: ", paste(names(table(hypo_combined$source)), "=", table(hypo_combined$source), collapse = ", "))
     
-    hypo_combined <- merge(hypo_combined, enh_coords, by = "name", all.x = TRUE)
-    # Add Target Genes
-    hypo_combined <- merge(hypo_combined, gene_map, by = "name", all.x = TRUE)
+    # Add coordinates and target genes using coordinate-based matching
+    hypo_combined$chrom <- NA_character_
+    hypo_combined$start <- NA_integer_
+    hypo_combined$end <- NA_integer_
+    hypo_combined$TargetGenes <- NA_character_
+    
+    for (i in seq_len(nrow(hypo_combined))) {
+      enh_name <- hypo_combined$name[i]
+      
+      # Parse coordinates from name string
+      parts <- strsplit(enh_name, "[:-]")[[1]]
+      if (length(parts) == 3) {
+        query_chr <- parts[1]
+        query_start <- as.integer(parts[2])
+        query_end <- as.integer(parts[3])
+        
+        # Find matching enhancer in BED file (with ±2bp tolerance)
+        matches <- which(
+          as.character(enhancers_dt$seqnames) == query_chr &
+          abs(enhancers_dt$start - query_start) <= 2 &
+          abs(enhancers_dt$end - query_end) <= 2
+        )
+        
+        if (length(matches) > 0) {
+          # Use first match
+          match_idx <- matches[1]
+          hypo_combined$chrom[i] <- as.character(enhancers_dt$seqnames[match_idx])
+          hypo_combined$start[i] <- enhancers_dt$start[match_idx]
+          hypo_combined$end[i] <- enhancers_dt$end[match_idx]
+          
+          # Get target genes for this enhancer
+          enh_name_bed <- as.character(enhancers_dt$name[match_idx])
+          if (enh_name_bed %in% gene_map$name) {
+            hypo_combined$TargetGenes[i] <- gene_map[name == enh_name_bed]$TargetGenes
+          }
+        }
+      }
+    }
     
     # Reorder columns
     if (!"TargetGenes" %in% colnames(hypo_combined)) hypo_combined$TargetGenes <- NA_character_
@@ -276,7 +573,38 @@ for (comp in comparisons) {
     # Annotate Regulated Genes
     hypo_combined$Regulated_TargetGenes <- sapply(hypo_combined$TargetGenes, annotate_rna, reg_map = regulated_genes_map)
     
-    hypo_combined <- hypo_combined[, c("chrom", "start", "end", "name", "source", "TargetGenes", "Regulated_TargetGenes")]
+    # Add enhancer width (1-based inclusive coordinates)
+    hypo_combined$Enhancer_Width <- hypo_combined$end - hypo_combined$start + 1
+    
+    # Add DMR coordinates, widths, overlap widths, and fractions for dmrseq_only and Both
+    hypo_combined$DMR_Coordinates <- NA_character_
+    hypo_combined$DMR_Width <- NA_character_
+    hypo_combined$DMR_Overlap_Width <- NA_character_
+    hypo_combined$Overlap_Fraction <- NA_real_
+    hypo_combined$DMR_Overlap_Fraction <- NA_real_
+    
+    for (i in seq_len(nrow(hypo_combined))) {
+      enh_name <- hypo_combined$name[i]
+      src <- hypo_combined$source[i]
+      
+      if (src %in% c("dmrseq_only", "Both") && enh_name %in% names(dmrseq_hypo_dmr_info)) {
+        dmr_info <- dmrseq_hypo_dmr_info[[enh_name]]
+        hypo_combined$DMR_Coordinates[i] <- paste(dmr_info$dmr_coords, collapse = "; ")
+        hypo_combined$DMR_Width[i] <- paste(dmr_info$dmr_widths, collapse = "; ")
+        hypo_combined$DMR_Overlap_Width[i] <- paste(dmr_info$overlap_widths, collapse = "; ")
+        
+        # Calculate overlap fraction (sum of all overlaps / enhancer width)
+        total_overlap <- sum(dmr_info$overlap_widths)
+        enh_width <- hypo_combined$Enhancer_Width[i]
+        hypo_combined$Overlap_Fraction[i] <- if (enh_width > 0) total_overlap / enh_width else NA_real_
+        
+        # Calculate DMR overlap fraction (sum of overlap widths / sum of DMR widths)
+        total_dmr_width <- sum(dmr_info$dmr_widths)
+        hypo_combined$DMR_Overlap_Fraction[i] <- if (total_dmr_width > 0) total_overlap / total_dmr_width else NA_real_
+      }
+    }
+    
+    hypo_combined <- hypo_combined[, c("chrom", "start", "end", "name", "source", "TargetGenes", "Regulated_TargetGenes", "Enhancer_Width", "DMR_Coordinates", "DMR_Width", "DMR_Overlap_Width", "Overlap_Fraction", "DMR_Overlap_Fraction")]
     
     # Save
     out_file_hypo <- file.path(output_dir, paste0(comp, "_Hypomethylated_Enhancers_Union.csv"))
@@ -367,8 +695,8 @@ for (comp in comparisons) {
     d_hypo_up    <- hypo_counts["Up"]      # Not Hyper & Not Down (Up)
     
     counts_hyper_down <- matrix(c(a_hyper_down, b_hyper_up, c_hypo_down, d_hypo_up), nrow = 2, byrow = TRUE,
-                                dimnames = list(Hypermethylated_Enhancer = c("Yes", "No"),
-                                                Downregulated_Gene = c("Yes", "No")))
+                                dimnames = list(Enhancer_Methylation = c("Hypermethylated", "Hypomethylated"),
+                                                Gene_Regulation = c("Downregulated", "Upregulated")))
     
     fisher_res_hyper_down <- fisher.test(counts_hyper_down)
     
@@ -385,6 +713,174 @@ for (comp in comparisons) {
     sink()
     
     message("  Fisher's exact test results saved to: ", basename(out_file_fisher))
+  }
+
+  # ----------------------------------------------------------------------------
+  # GO:BP Enrichment Analysis
+  # ----------------------------------------------------------------------------
+  
+  # Extract all target genes from hypermethylated enhancers
+  hyper_target_genes <- c()
+  hyper_upreg_genes <- c()
+  
+  if (!is.null(hyper_combined) && "TargetGenes" %in% colnames(hyper_combined)) {
+    # Get all target genes
+    target_vals <- na.omit(hyper_combined$TargetGenes)
+    target_vals <- target_vals[target_vals != ""]
+    if (length(target_vals) > 0) {
+      all_genes <- unlist(strsplit(target_vals, ","))
+      all_genes <- trimws(all_genes)
+      hyper_target_genes <- unique(all_genes[all_genes != ""])
+    }
+    
+    # Get upregulated target genes
+    if ("Regulated_TargetGenes" %in% colnames(hyper_combined)) {
+      reg_vals <- na.omit(hyper_combined$Regulated_TargetGenes)
+      reg_vals <- reg_vals[reg_vals != ""]
+      if (length(reg_vals) > 0) {
+        all_reg <- unlist(strsplit(reg_vals, ", "))
+        up_reg <- all_reg[grepl("\\(Up\\)$", all_reg)]
+        hyper_upreg_genes <- unique(gsub("\\(Up\\)$", "", up_reg))
+      }
+    }
+  }
+  
+  # Extract all target genes from hypomethylated enhancers
+  hypo_target_genes <- c()
+  hypo_upreg_genes <- c()
+  
+  if (!is.null(hypo_combined) && "TargetGenes" %in% colnames(hypo_combined)) {
+    # Get all target genes
+    target_vals <- na.omit(hypo_combined$TargetGenes)
+    target_vals <- target_vals[target_vals != ""]
+    if (length(target_vals) > 0) {
+      all_genes <- unlist(strsplit(target_vals, ","))
+      all_genes <- trimws(all_genes)
+      hypo_target_genes <- unique(all_genes[all_genes != ""])
+    }
+    
+    # Get upregulated target genes
+    if ("Regulated_TargetGenes" %in% colnames(hypo_combined)) {
+      reg_vals <- na.omit(hypo_combined$Regulated_TargetGenes)
+      reg_vals <- reg_vals[reg_vals != ""]
+      if (length(reg_vals) > 0) {
+        all_reg <- unlist(strsplit(reg_vals, ", "))
+        up_reg <- all_reg[grepl("\\(Up\\)$", all_reg)]
+        hypo_upreg_genes <- unique(gsub("\\(Up\\)$", "", up_reg))
+      }
+    }
+  }
+  
+  # Perform GO:BP enrichment for hypermethylated enhancer target genes
+  if (length(hyper_target_genes) >= 3) {
+    message("  Running GO:BP enrichment for hypermethylated enhancer target genes...")
+    tryCatch({
+      go_hyper_all <- enrichGO(
+        gene = hyper_target_genes,
+        OrgDb = org.Hs.eg.db,
+        keyType = "SYMBOL",
+        ont = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff = 0.05,
+        qvalueCutoff = 0.2
+      )
+      
+      if (!is.null(go_hyper_all) && nrow(as.data.frame(go_hyper_all)) > 0) {
+        out_file_go <- file.path(output_dir, paste0(comp, "_Hypermethylated_TargetGenes_GO_BP.csv"))
+        fwrite(as.data.frame(go_hyper_all), out_file_go)
+        message("    Saved to: ", basename(out_file_go))
+      } else {
+        message("    No significant GO:BP terms found")
+      }
+    }, error = function(e) {
+      message("    GO enrichment failed: ", e$message)
+    })
+  } else {
+    message("  Insufficient genes for GO:BP enrichment (hypermethylated target genes)")
+  }
+  
+  # Perform GO:BP enrichment for hypermethylated enhancer upregulated target genes
+  if (length(hyper_upreg_genes) >= 3) {
+    message("  Running GO:BP enrichment for hypermethylated enhancer upregulated target genes...")
+    tryCatch({
+      go_hyper_up <- enrichGO(
+        gene = hyper_upreg_genes,
+        OrgDb = org.Hs.eg.db,
+        keyType = "SYMBOL",
+        ont = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff = 0.05,
+        qvalueCutoff = 0.2
+      )
+      
+      if (!is.null(go_hyper_up) && nrow(as.data.frame(go_hyper_up)) > 0) {
+        out_file_go <- file.path(output_dir, paste0(comp, "_Hypermethylated_Upregulated_TargetGenes_GO_BP.csv"))
+        fwrite(as.data.frame(go_hyper_up), out_file_go)
+        message("    Saved to: ", basename(out_file_go))
+      } else {
+        message("    No significant GO:BP terms found")
+      }
+    }, error = function(e) {
+      message("    GO enrichment failed: ", e$message)
+    })
+  } else {
+    message("  Insufficient genes for GO:BP enrichment (hypermethylated upregulated genes)")
+  }
+  
+  # Perform GO:BP enrichment for hypomethylated enhancer target genes
+  if (length(hypo_target_genes) >= 3) {
+    message("  Running GO:BP enrichment for hypomethylated enhancer target genes...")
+    tryCatch({
+      go_hypo_all <- enrichGO(
+        gene = hypo_target_genes,
+        OrgDb = org.Hs.eg.db,
+        keyType = "SYMBOL",
+        ont = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff = 0.05,
+        qvalueCutoff = 0.2
+      )
+      
+      if (!is.null(go_hypo_all) && nrow(as.data.frame(go_hypo_all)) > 0) {
+        out_file_go <- file.path(output_dir, paste0(comp, "_Hypomethylated_TargetGenes_GO_BP.csv"))
+        fwrite(as.data.frame(go_hypo_all), out_file_go)
+        message("    Saved to: ", basename(out_file_go))
+      } else {
+        message("    No significant GO:BP terms found")
+      }
+    }, error = function(e) {
+      message("    GO enrichment failed: ", e$message)
+    })
+  } else {
+    message("  Insufficient genes for GO:BP enrichment (hypomethylated target genes)")
+  }
+  
+  # Perform GO:BP enrichment for hypomethylated enhancer upregulated target genes
+  if (length(hypo_upreg_genes) >= 3) {
+    message("  Running GO:BP enrichment for hypomethylated enhancer upregulated target genes...")
+    tryCatch({
+      go_hypo_up <- enrichGO(
+        gene = hypo_upreg_genes,
+        OrgDb = org.Hs.eg.db,
+        keyType = "SYMBOL",
+        ont = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff = 0.05,
+        qvalueCutoff = 0.2
+      )
+      
+      if (!is.null(go_hypo_up) && nrow(as.data.frame(go_hypo_up)) > 0) {
+        out_file_go <- file.path(output_dir, paste0(comp, "_Hypomethylated_Upregulated_TargetGenes_GO_BP.csv"))
+        fwrite(as.data.frame(go_hypo_up), out_file_go)
+        message("    Saved to: ", basename(out_file_go))
+      } else {
+        message("    No significant GO:BP terms found")
+      }
+    }, error = function(e) {
+      message("    GO enrichment failed: ", e$message)
+    })
+  } else {
+    message("  Insufficient genes for GO:BP enrichment (hypomethylated upregulated genes)")
   }
 
   # Collect Stats

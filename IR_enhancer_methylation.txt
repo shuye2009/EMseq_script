@@ -1,0 +1,66 @@
+# IR-induced enhancer differential methylation - literature list
+# Claude web search results, 2025/10/19
+
+Here is a structured literature list on IR-induced enhancer differential methylation, organized by study type. Be aware that this is a relatively sparse field — most IR methylation studies were not designed with enhancers as the primary focus, so much of the enhancer evidence is secondary or inferred from genome-wide data.
+
+---
+
+### Directly relevant — enhancers explicitly implicated
+
+**1. Transgenerational IR-induced DMRs at enhancers (zebrafish, WGBS)**
+Hurem et al. (2018) *Scientific Reports*
+WGBS of zebrafish F1 embryos following parental gamma radiation (8.7 mGy/h for 27 days) identified 5,658 DMRs predominantly located at known regulatory regions including gene promoters and enhancers. Pathway analysis linked these DMRs to development, apoptosis, and cancer pathways, consistent with previously observed developmental defects and genomic instability in offspring. Locus-specific follow-up confirmed that a subset of DMRs persisted into F2 and F3 generations.
+→ https://www.nature.com/articles/s41598-018-33817-w
+
+**2. Post-radiation breast cancer — enhancer hypomethylation activating target genes**
+Li et al. (2025) *Scientific Reports*
+Multi-omics integration of post-radiation breast cancer identified radiation-associated genes (including CD248, CCDC80, GADD45B, MMP2) whose transcriptional upregulation was associated with hypomethylation of corresponding promoter or distal enhancer regions. The study combined large-scale DNA methylation data with RNA-seq from GEO to characterize the epigenetic landscape after breast cancer radiotherapy.
+→ https://www.nature.com/articles/s41598-025-90247-1
+
+**3. IR-induced 3D chromatin reorganization — enhancer–promoter loop rewiring**
+Xiang et al. (2025) *Nature Communications*
+ATAC-seq, RNA-seq, and Hi-C analysis of human bronchial epithelial cells and corresponding radiation-induced malignantly transformed cell lines found that malignant transformation was accompanied by chromatin switching from inactive B compartments to active A compartments, an increased number of TADs, and gained ATAC-seq peaks mediating new distal chromatin contacts. TP63 was identified as a mediator of new chromatin-accessible sites anchoring tumour-specific enhancer–promoter loops, ultimately activating the MYC oncogene.
+→ https://www.nature.com/articles/s41467-025-63754-y
+
+---
+
+### Genome-wide IR methylation studies — enhancers inferred from annotation
+
+**4. IR-induced dynamic DNA methylation in breast cancer cells (450K array)**
+Antwih et al. (2013) *Epigenetics*
+DNA methylation was profiled at >450,000 loci in MDA-MB-231 cells irradiated at 2 and 6 Gy across seven time points from 1–72 hours. Differentially methylated genes were enriched in cell cycle, DNA repair, and apoptosis pathways, and the degree of differential methylation varied with dose and time post-irradiation. Decreased DNMT1 expression was observed following 6 Gy, suggesting a mechanism for hypomethylation.
+→ https://pmc.ncbi.nlm.nih.gov/articles/PMC3883787/
+
+**5. Review: effects of IR on DNA methylation — clinical applications**
+Miousse et al. (2017) *Frontiers in Oncology*
+A comprehensive review summarizing global, repetitive element, and gene-specific methylation changes across high/low-LET, fractionated, and bystander IR contexts, including mechanistic discussion of DNMT dysregulation.
+→ https://pmc.ncbi.nlm.nih.gov/articles/PMC5411327/
+
+**6. Review: IR epigenetic modifications and radiation protection**
+Testa et al. (2020) *International Journal of Molecular Sciences*
+Reviews epigenetic mechanisms in the biological response to IR with implications for radiation protection, discussing gene-specific hypermethylation of tumour suppressor genes in workers exposed to IR, and noting that IR-induced methylation changes correlate with biological responses including cell cycle, DNA repair, and apoptosis.
+→ https://www.mdpi.com/1422-0067/21/17/5993
+
+**7. Review: IR epigenetic modifications — biomarker potential**
+Recent review (2025) *PubMed*
+Systematically examines the impact of IR on genome-wide DNA methylation landscapes and evaluates their potential as molecular indicators of radiation exposure, discussing temporal stability of methylation changes and their relevance to radiation-specific biomarker development.
+→ https://pubmed.ncbi.nlm.nih.gov/40244232/
+
+---
+
+### Technical note — array coverage of enhancers matters
+
+A key methodological caveat for all array-based IR methylation studies: the EPIC array covers 58% of FANTOM5 enhancers, but only 7% of distal and 27% of proximal ENCODE regulatory elements. A single EPIC probe is not always informative for distal regulatory elements showing variable methylation across the region. This means most 450K-based IR studies (like Antwih et al.) have limited and uneven enhancer coverage — enhancer DMRs from these studies should be treated as partial. WGBS (as in Hurem et al.) is the gold standard for unbiased enhancer methylation discovery. The newer EPIC v2 (900K) array adds over 200,000 probes covering enhancers, super-enhancers, and CTCF binding regions, making it better suited for future IR enhancer methylation studies.
+
+---
+
+### Summary table
+
+| Study | Model | Method | Enhancer evidence |
+|---|---|---|---|
+| Hurem et al. 2018 | Zebrafish (in vivo) | WGBS | Direct — DMRs at enhancers |
+| Li et al. 2025 | Human breast cancer | Multi-omics | Direct — enhancer hypomethylation activates genes |
+| Xiang et al. 2025 | Human bronchial cells | ATAC-seq/Hi-C | Indirect — chromatin accessibility at enhancer loops |
+| Antwih et al. 2013 | MDA-MB-231 cells | 450K array | Indirect — genome-wide with partial enhancer coverage |
+| Miousse et al. 2017 | Review | — | Contextual |
+| Testa et al. 2020 | Review | — | Contextual |
