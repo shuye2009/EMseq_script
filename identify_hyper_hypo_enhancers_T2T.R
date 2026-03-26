@@ -31,7 +31,7 @@ for (pkg in cran_packages) {
 }
 
 # Install and load Bioconductor packages
-bioc_packages <- c("GenomicRanges", "rtracklayer", "clusterProfiler", "org.Hs.eg.db")
+bioc_packages <- c("GenomicRanges", "rtracklayer", "clusterProfiler", "org.Hs.eg.db", "mygene")
 for (pkg in bioc_packages) {
   install_bioc_if_missing(pkg)
 }
@@ -172,19 +172,19 @@ for (comp in comparisons) {
   dmrseq_hypo_dmr_info <- list()
   
   # Try loading DMR table (tsv preferred) or annotated xlsx
-  dmr_table_path <- file.path(dmrseq_base_dir, comp, "DMR", "DMR_table.tsv")
+  dmr_table_path <- file.path(dmrseq_base_dir, comp, "DMRs", "DMRs_annotated.xlsx")
   
   if (file.exists(dmr_table_path)) {
-    message("  Loading dmrseq results from DMR_table.tsv")
-    dmrs <- fread(dmr_table_path)
+    message("  Loading dmrseq results from DMRs_annotated.xlsx")
+    dmrs <- as.data.table(read.xlsx(dmr_table_path))
     
     # Filter significant DMRs based on p-value and beta threshold
-    sig_dmrs <- dmrs[pval < dmrseq_pval_cutoff & abs(beta) > dmrseq_beta_cutoff]
+    sig_dmrs <- dmrs[p.value < dmrseq_pval_cutoff & abs(betaCoefficient) > dmrseq_beta_cutoff]
     
     if (nrow(sig_dmrs) > 0) {
       # Split into Hyper and Hypo
-      hyper_dmrs <- sig_dmrs[beta > dmrseq_beta_cutoff]
-      hypo_dmrs  <- sig_dmrs[beta < -dmrseq_beta_cutoff]
+      hyper_dmrs <- sig_dmrs[betaCoefficient > dmrseq_beta_cutoff]
+      hypo_dmrs  <- sig_dmrs[betaCoefficient < -dmrseq_beta_cutoff]
       
       # Convert to GRanges
       if (nrow(hyper_dmrs) > 0) {
@@ -881,6 +881,158 @@ for (comp in comparisons) {
     })
   } else {
     message("  Insufficient genes for GO:BP enrichment (hypomethylated upregulated genes)")
+  }
+
+  # ----------------------------------------------------------------------------
+  # Gene Annotation with mygene.info
+  # ----------------------------------------------------------------------------
+  
+  # Extract upregulated and downregulated genes from both hyper and hypo enhancers
+  hyper_down_genes <- c()
+  hypo_down_genes <- c()
+  
+  if (!is.null(hyper_combined) && "Regulated_TargetGenes" %in% colnames(hyper_combined)) {
+    reg_vals <- na.omit(hyper_combined$Regulated_TargetGenes)
+    reg_vals <- reg_vals[reg_vals != ""]
+    if (length(reg_vals) > 0) {
+      all_reg <- unlist(strsplit(reg_vals, ", "))
+      down_reg <- all_reg[grepl("\\(Down\\)$", all_reg)]
+      hyper_down_genes <- unique(gsub("\\(Down\\)$", "", down_reg))
+    }
+  }
+  
+  if (!is.null(hypo_combined) && "Regulated_TargetGenes" %in% colnames(hypo_combined)) {
+    reg_vals <- na.omit(hypo_combined$Regulated_TargetGenes)
+    reg_vals <- reg_vals[reg_vals != ""]
+    if (length(reg_vals) > 0) {
+      all_reg <- unlist(strsplit(reg_vals, ", "))
+      down_reg <- all_reg[grepl("\\(Down\\)$", all_reg)]
+      hypo_down_genes <- unique(gsub("\\(Down\\)$", "", down_reg))
+    }
+  }
+  
+  # Annotate upregulated genes from hypermethylated enhancers
+  if (length(hyper_upreg_genes) > 0) {
+    message("  Annotating upregulated genes from hypermethylated enhancers with mygene.info...")
+    tryCatch({
+      mg <- mygene::MyGene()
+      hyper_up_annot <- mygene::queryMany(hyper_upreg_genes, scopes="symbol", 
+                                          fields=c("name", "summary", "entrezgene", "ensembl.gene", "go.BP"),
+                                          species="human", return.as="DataFrame")
+      hyper_up_annot <- as.data.frame(hyper_up_annot)
+      
+      # Flatten list columns for CSV export
+      for (col in colnames(hyper_up_annot)) {
+        if (is.list(hyper_up_annot[[col]])) {
+          hyper_up_annot[[col]] <- sapply(hyper_up_annot[[col]], function(x) {
+            if (is.null(x) || length(x) == 0) return(NA_character_)
+            if (is.list(x)) return(paste(unlist(x), collapse="; "))
+            return(paste(x, collapse="; "))
+          })
+        }
+      }
+      
+      if (!is.null(hyper_up_annot) && nrow(hyper_up_annot) > 0) {
+        out_file <- file.path(output_dir, paste0(comp, "_Hypermethylated_Upregulated_Genes_Annotated.csv"))
+        fwrite(hyper_up_annot, out_file)
+        message("    Saved to: ", basename(out_file))
+      }
+    }, error = function(e) {
+      message("    Gene annotation failed: ", e$message)
+    })
+  }
+  
+  # Annotate downregulated genes from hypermethylated enhancers
+  if (length(hyper_down_genes) > 0) {
+    message("  Annotating downregulated genes from hypermethylated enhancers with mygene.info...")
+    tryCatch({
+      mg <- mygene::MyGene()
+      hyper_down_annot <- mygene::queryMany(hyper_down_genes, scopes="symbol", 
+                                            fields=c("name", "summary", "entrezgene", "ensembl.gene", "go.BP"),
+                                            species="human", return.as="DataFrame")
+      hyper_down_annot <- as.data.frame(hyper_down_annot)
+      
+      # Flatten list columns for CSV export
+      for (col in colnames(hyper_down_annot)) {
+        if (is.list(hyper_down_annot[[col]])) {
+          hyper_down_annot[[col]] <- sapply(hyper_down_annot[[col]], function(x) {
+            if (is.null(x) || length(x) == 0) return(NA_character_)
+            if (is.list(x)) return(paste(unlist(x), collapse="; "))
+            return(paste(x, collapse="; "))
+          })
+        }
+      }
+      
+      if (!is.null(hyper_down_annot) && nrow(hyper_down_annot) > 0) {
+        out_file <- file.path(output_dir, paste0(comp, "_Hypermethylated_Downregulated_Genes_Annotated.csv"))
+        fwrite(hyper_down_annot, out_file)
+        message("    Saved to: ", basename(out_file))
+      }
+    }, error = function(e) {
+      message("    Gene annotation failed: ", e$message)
+    })
+  }
+  
+  # Annotate upregulated genes from hypomethylated enhancers
+  if (length(hypo_upreg_genes) > 0) {
+    message("  Annotating upregulated genes from hypomethylated enhancers with mygene.info...")
+    tryCatch({
+      mg <- mygene::MyGene()
+      hypo_up_annot <- mygene::queryMany(hypo_upreg_genes, scopes="symbol", 
+                                         fields=c("name", "summary", "entrezgene", "ensembl.gene", "go.BP"),
+                                         species="human", return.as="DataFrame")
+      hypo_up_annot <- as.data.frame(hypo_up_annot)
+      
+      # Flatten list columns for CSV export
+      for (col in colnames(hypo_up_annot)) {
+        if (is.list(hypo_up_annot[[col]])) {
+          hypo_up_annot[[col]] <- sapply(hypo_up_annot[[col]], function(x) {
+            if (is.null(x) || length(x) == 0) return(NA_character_)
+            if (is.list(x)) return(paste(unlist(x), collapse="; "))
+            return(paste(x, collapse="; "))
+          })
+        }
+      }
+      
+      if (!is.null(hypo_up_annot) && nrow(hypo_up_annot) > 0) {
+        out_file <- file.path(output_dir, paste0(comp, "_Hypomethylated_Upregulated_Genes_Annotated.csv"))
+        fwrite(hypo_up_annot, out_file)
+        message("    Saved to: ", basename(out_file))
+      }
+    }, error = function(e) {
+      message("    Gene annotation failed: ", e$message)
+    })
+  }
+  
+  # Annotate downregulated genes from hypomethylated enhancers
+  if (length(hypo_down_genes) > 0) {
+    message("  Annotating downregulated genes from hypomethylated enhancers with mygene.info...")
+    tryCatch({
+      mg <- mygene::MyGene()
+      hypo_down_annot <- mygene::queryMany(hypo_down_genes, scopes="symbol", 
+                                           fields=c("name", "summary", "entrezgene", "ensembl.gene", "go.BP"),
+                                           species="human", return.as="DataFrame")
+      hypo_down_annot <- as.data.frame(hypo_down_annot)
+      
+      # Flatten list columns for CSV export
+      for (col in colnames(hypo_down_annot)) {
+        if (is.list(hypo_down_annot[[col]])) {
+          hypo_down_annot[[col]] <- sapply(hypo_down_annot[[col]], function(x) {
+            if (is.null(x) || length(x) == 0) return(NA_character_)
+            if (is.list(x)) return(paste(unlist(x), collapse="; "))
+            return(paste(x, collapse="; "))
+          })
+        }
+      }
+      
+      if (!is.null(hypo_down_annot) && nrow(hypo_down_annot) > 0) {
+        out_file <- file.path(output_dir, paste0(comp, "_Hypomethylated_Downregulated_Genes_Annotated.csv"))
+        fwrite(hypo_down_annot, out_file)
+        message("    Saved to: ", basename(out_file))
+      }
+    }, error = function(e) {
+      message("    Gene annotation failed: ", e$message)
+    })
   }
 
   # Collect Stats
