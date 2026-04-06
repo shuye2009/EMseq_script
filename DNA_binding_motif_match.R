@@ -44,7 +44,7 @@ for (pkg in bioc_packages) {
 # See build_hs1_BSgenome.R for the details
 
 library(BSgenome.Hsapiens.UCSC.hs1)
-hs1 <- BSgenome.Hsapiens.UCSC.hs1
+print(packageVersion("BSgenome.Hsapiens.UCSC.hs1"))
 
 # Get multiple TF motifs relevant to 10Gy IR at 10 days post-treatment
 # Focus on DNA damage response, senescence, SASP, and stress response
@@ -108,7 +108,7 @@ if (n_before > n_after) {
 }
 
 # Match all motifs at once
-motif_matches <- matchMotifs(pwm_list, enhancer_gr, genome = hs1, out = "scores")
+motif_matches <- matchMotifs(pwm_list, enhancer_gr, genome = "hs1", out = "scores")
 
 message("Motif matching complete!")
 
@@ -203,4 +203,39 @@ for (motif_name in motif_names) {
                     motif_name, n_positive, 100*n_positive/nrow(results_df), 
                     mean_score, max_score))
   }
+}
+
+
+library(clusterProfiler)
+library(msigdbr)
+library(dplyr)
+
+# Get senescence gene sets
+senescence_sets <- msigdbr(species = "Homo sapiens", 
+                           collection = "C5", 
+                           subcollection = "GO:BP") %>%
+  filter(grepl("SENESCENCE", gs_name))
+
+# Convert to GMT format
+# GMT format: gene_set_name\tdescription\tgene1\tgene2\tgene3...
+gmt_lines <- senescence_sets %>%
+  group_by(gs_name) %>%
+  summarize(
+    genes = paste(gene_symbol, collapse = "\t"),
+    .groups = "drop"
+  ) %>%
+  mutate(gmt_line = paste(gs_name, gs_name, genes, sep = "\t")) %>%
+  dplyr::pull(gmt_line)
+
+# Write to GMT file
+gmt_output <- file.path(targeted_base_dir, "senescence_gene_sets.gmt")
+writeLines(gmt_lines, gmt_output)
+
+message("\n=== Senescence Gene Sets ===")
+message("GMT file: ", basename(gmt_output))
+message("Number of gene sets: ", length(gmt_lines))
+message("Gene sets included:")
+for (set_name in unique(senescence_sets$gs_name)) {
+  n_genes <- sum(senescence_sets$gs_name == set_name)
+  message(sprintf("  %s: %d genes", set_name, n_genes))
 }

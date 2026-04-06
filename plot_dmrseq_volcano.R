@@ -2,6 +2,7 @@
 library(data.table)
 library(ggplot2)
 library(dplyr)
+library(openxlsx)
 
 # ==============================================================================
 # Settings and Paths
@@ -26,28 +27,28 @@ message("Found comparisons: ", paste(comparisons, collapse = ", "))
 for (comp in comparisons) {
     message("\nProcessing: ", comp)
     
-    dmr_file <- file.path(dmrseq_base_dir, comp, "DMR", "DMR_table.tsv")
+    dmr_file <- file.path(dmrseq_base_dir, comp, "DMRs", "DMRs_annotated.xlsx")
     
     if (file.exists(dmr_file)) {
         # Read Data
-        dmrs <- fread(dmr_file)
+        dmrs <- read.xlsx(dmr_file)
         
         # Check columns
-        if (!all(c("beta", "pval", "qval") %in% colnames(dmrs))) {
-            warning("  Missing required columns (beta, pval, qval) in ", comp)
+        if (!all(c("betaCoefficient", "p.value", "q.value") %in% colnames(dmrs))) {
+            warning("  Missing required columns (betaCoefficient, p.value, q.value) in ", comp)
             next
         }
         
         # Prepare Plot Data
         # Handle p=0 by replacing with minimum non-zero p-value / 10 or similar, or just cap
-        min_nonzero_p <- min(dmrs$pval[dmrs$pval > 0], na.rm = TRUE)
+        min_nonzero_p <- min(dmrs$p.value[dmrs$p.value > 0], na.rm = TRUE)
         plot_data <- dmrs %>%
             mutate(
-                plot_pval = ifelse(pval == 0, min_nonzero_p * 0.1, pval),
+                plot_pval = ifelse(p.value == 0, min_nonzero_p * 0.1, p.value),
                 logP = -log10(plot_pval),
                 Direction = case_when(
-                    pval < 0.05 & beta > 0.5 ~ "Hypermethylated",
-                    pval < 0.05 & beta < -0.5 ~ "Hypomethylated",
+                    p.value < 0.05 & betaCoefficient > 0.5 ~ "Hypermethylated",
+                    p.value < 0.05 & betaCoefficient < -0.5 ~ "Hypomethylated",
                     TRUE ~ "Not Significant"
                 )
             )
@@ -58,7 +59,7 @@ for (comp in comparisons) {
         message("  Hyper: ", n_hyper, " | Hypo: ", n_hypo)
         
         # Plot
-        p <- ggplot(plot_data, aes(x = beta, y = logP, color = Direction)) +
+        p <- ggplot(plot_data, aes(x = betaCoefficient, y = logP, color = Direction)) +
             geom_point(alpha = 0.6, size = 1.5) +
             scale_color_manual(values = c(
                 "Hypermethylated" = "#E74C3C", # Red
@@ -67,7 +68,7 @@ for (comp in comparisons) {
             )) +
             labs(title = paste("DMR Volcano Plot:", comp),
                  subtitle = paste("Hyper:", n_hyper, "| Hypo:", n_hypo, "(p < 0.05, |beta| > 0.5)"),
-                 x = "Beta (Effect Size)",
+                 x = "BetaCoefficient (Effect Size)",
                  y = "-log10(p-value)") +
             theme_bw() +
             theme(

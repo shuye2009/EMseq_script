@@ -94,6 +94,9 @@ if (all(c("name", "TargetGene") %in% colnames(links_dt))) {
   gene_map <- data.table(name = character(), TargetGenes = character())
 }
 
+# count the number of unique enhancers and the number of unique genes
+message("  Total unique enhancers: ", length(unique(enhancers_dt$name)))
+message("  Total unique genes: ", length(unique(gene_map$TargetGenes)))
 # ==============================================================================
 # Process Comparisons
 # ==============================================================================
@@ -173,6 +176,19 @@ for (comp in comparisons) {
   
   # Try loading DMR table (tsv preferred) or annotated xlsx
   dmr_table_path <- file.path(dmrseq_base_dir, comp, "DMRs", "DMRs_annotated.xlsx")
+  bismark_data_path <- file.path(dmrseq_base_dir, comp, "RData", "bismark.RData")
+  
+  # Load bismark methylation data for validation
+  bs_obj <- NULL
+  if (file.exists(bismark_data_path)) {
+    message("  Loading bismark methylation data from RData")
+    load(bismark_data_path)  # Should load object named 'bs' or similar
+    if (exists("bs")) {
+      bs_obj <- bs
+    } else if (exists("bs.filtered")) {
+      bs_obj <- bs.filtered
+    }
+  }
   
   if (file.exists(dmr_table_path)) {
     message("  Loading dmrseq results from DMRs_annotated.xlsx")
@@ -197,6 +213,30 @@ for (comp in comparisons) {
           dmr_hits <- hyper_gr[subjectHits(overlaps)]
           overlap_ranges <- pintersect(enh_hits, dmr_hits)
           overlap_widths <- width(overlap_ranges)
+          
+          # Validate that each overlap contains at least one C in bismark data
+          if (!is.null(bs_obj)) {
+            valid_overlaps <- sapply(seq_along(overlap_ranges), function(i) {
+              # Find overlap between this range and bismark C positions
+              c_overlap <- findOverlaps(overlap_ranges[i], bs_obj)
+              return(length(c_overlap) > 0)
+            })
+            
+            # Filter to only valid overlaps with C coverage
+            n_before <- length(overlaps)
+            overlaps <- overlaps[valid_overlaps]
+            overlap_ranges <- overlap_ranges[valid_overlaps]
+            overlap_widths <- overlap_widths[valid_overlaps]
+            enh_hits <- enh_hits[valid_overlaps]
+            dmr_hits <- dmr_hits[valid_overlaps]
+            
+            n_filtered <- n_before - length(overlaps)
+            if (n_filtered > 0) {
+              message("    Filtered out ", n_filtered, " hyper DMR overlaps with no C coverage")
+            }
+          } else {
+            warning("  Bismark data not available - skipping C coverage validation")
+          }
           
           # Store DMR info for each enhancer
           for (i in seq_along(overlaps)) {
@@ -242,6 +282,30 @@ for (comp in comparisons) {
           dmr_hits <- hypo_gr[subjectHits(overlaps)]
           overlap_ranges <- pintersect(enh_hits, dmr_hits)
           overlap_widths <- width(overlap_ranges)
+          
+          # Validate that each overlap contains at least one C in bismark data
+          if (!is.null(bs_obj)) {
+            valid_overlaps <- sapply(seq_along(overlap_ranges), function(i) {
+              # Find overlap between this range and bismark C positions
+              c_overlap <- findOverlaps(overlap_ranges[i], bs_obj)
+              return(length(c_overlap) > 0)
+            })
+            
+            # Filter to only valid overlaps with C coverage
+            n_before <- length(overlaps)
+            overlaps <- overlaps[valid_overlaps]
+            overlap_ranges <- overlap_ranges[valid_overlaps]
+            overlap_widths <- overlap_widths[valid_overlaps]
+            enh_hits <- enh_hits[valid_overlaps]
+            dmr_hits <- dmr_hits[valid_overlaps]
+            
+            n_filtered <- n_before - length(overlaps)
+            if (n_filtered > 0) {
+              message("    Filtered out ", n_filtered, " hypo DMR overlaps with no C coverage")
+            }
+          } else {
+            warning("  Bismark data not available - skipping C coverage validation")
+          }
           
           # Store DMR info for each enhancer
           for (i in seq_along(overlaps)) {
