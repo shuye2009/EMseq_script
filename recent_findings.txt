@@ -1,0 +1,21 @@
+1. Molecular Mechanisms of the FLASH Effect
+The oxygen depletion hypothesis and other potential mechanisms (like radical recombination and immune modulation) driving the tissue-sparing effect of ultra-high dose rate (FLASH) radiotherapy have been extensively reviewed and debated recently:
+
+Zhang et al. (2024). "Current views on mechanisms of the FLASH effect in cancer radiotherapy". National Science Review, 11(10), nwae350.
+Focus: Comprehensive review evaluating the radiolytic oxygen depletion hypothesis versus other emerging theories like mitochondrial dynamics and DNA integrity preservation.
+Abolfath et al. (2024). "The oxygen puzzle in FLASH radiotherapy: A comprehensive review". Physics and Imaging in Radiation Oncology, 31, 100537.
+Focus: Deep dive into how transient hypoxia and reactive oxygen species (ROS) dynamics act as the primary biological drivers of normal tissue sparing.
+2. cGAS-STING Pathway and Fractionated Dose Optimization
+The fine-tuning of radiation dosing to optimally trigger the cGAS-STING pathway—maximizing systemic immune responses (abscopal effect) without ablating the immune cells themselves—has been a major focus:
+
+Galluzzi et al. (2023 / 2024). "Harnessing the cGAS-STING pathway to potentiate radiation therapy: Translating preclinical promise into clinical reality". Frontiers in Pharmacology, 15, 1383000.
+Focus: Reviews the molecular mechanisms linking radiation-induced DNA double-strand breaks to cytosolic micronuclei formation, cGAMP production, and optimal fractionation schedules to maximize abscopal responses.
+Baskar et al. (2023). "The Abscopal Effect of Radiation Therapy". Future Oncology.
+Focus: Details how optimal radiation doses are strictly necessary to promote the cGAS-STING pathway without triggering immunosuppressive cascades.
+3. Spatial Transcriptomics and the Radioresistant Tumor Microenvironment
+The use of spatial transcriptomics and advanced sequencing to map how tumors reorganize their microenvironments (TME) to survive radiation is a rapidly expanding area:
+
+Liu et al. (2024). "A critical review on exploring tumor Microenvironment's impacts on radioresistance". Radiotherapy and Oncology.
+Focus: Reviews how the TME—specifically through interactions with cancer-associated fibroblasts (CAFs) and tumor-associated macrophages—fosters radioresistant niches.
+Wu et al. (2023). "Mechanisms and perspective treatment of radioresistance in cancer". Frontiers in Immunology, 14, 1133899.
+Focus: Synthesizes how irradiated tumor cells undergo epithelial-mesenchymal transition (EMT) and secrete signals that reprogram surrounding stromal cells into a protective state to survive radiotherapy.

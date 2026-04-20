@@ -5,6 +5,8 @@ library(ggplot2)
 library(GenomicRanges)
 library(rtracklayer)
 library(R.utils)
+library(preprocessCore)
+
 
 # Direct liftOver: hg38 -> hg19
 message("Setting up liftOver: hg38 -> hg19...")
@@ -147,63 +149,141 @@ head(coverage)
 
 # filter meth_df by coverage
 message("Filtering by coverage...")
-coverage_threshold <- 1
+
+# Parameters
+#coverage_threshold <- 10
 sample_frac <- 0.5
-keep <- rowSums(coverage > coverage_threshold) > as.integer(sample_frac * ncol(coverage))
-filtered_meth <- as.data.frame(meth[keep, ])
-filtered_cov <- as.data.frame(coverage[keep, ])
 
-# Extract methylation data for MAPLE probes, and translate rownames to maple probe id
-# Create GRanges from filtered EM-seq positions
-message("Identifying coveraged-filtered EM-seq positions...")
-filtered_pos <- pos_data_hg19[keep]
-message("Filtered EM-seq CpGs: ", length(filtered_pos))
+for (coverage_threshold in c(1, 5, 10)) {
+  keep <- rowSums(coverage > coverage_threshold) > as.integer(sample_frac * ncol(coverage))
+  filtered_meth <- as.data.frame(meth[keep, ])
+  filtered_cov <- as.data.frame(coverage[keep, ])
 
-# Find overlaps between filtered EM-seq data and MAPLE probes
-message("Finding overlaps between filtered EM-seq data and MAPLE probes...")
-overlaps <- findOverlaps(filtered_pos, maple_gr, type = "equal")
-message("EM-seq CpGs matching MAPLE probes: ", length(overlaps))
 
-# Extract matching methylation data
-emseq_idx <- queryHits(overlaps)
-maple_idx <- subjectHits(overlaps)
+  # Extract methylation data for MAPLE probes, and translate rownames to maple probe id
+  # Create GRanges from filtered EM-seq positions
+  message("Identifying coveraged-filtered EM-seq positions...")
+  filtered_pos <- pos_data_hg19[keep]
+  message("Filtered EM-seq CpGs: ", length(filtered_pos))
 
-# Get probe IDs for matched positions
-probe_ids <- names(maple_gr)[maple_idx]
+  # Find overlaps between filtered EM-seq data and MAPLE probes
+  message("Finding overlaps between filtered EM-seq data and MAPLE probes...")
+  overlaps <- findOverlaps(filtered_pos, maple_gr, type = "equal")
+  message("EM-seq CpGs matching MAPLE probes: ", length(overlaps))
 
-# Check for duplicates (multiple EM-seq CpGs mapping to same MAPLE probe)
-dup_probes <- duplicated(probe_ids)
-message("Duplicate probe mappings: ", sum(dup_probes))
+  # Extract matching methylation data
+  emseq_idx <- queryHits(overlaps)
+  maple_idx <- subjectHits(overlaps)
 
-# Create data frame with probe IDs and methylation values
-meth_with_probes <- cbind(probe_id = probe_ids, filtered_meth[emseq_idx, ])
+  # Get probe IDs for matched positions
+  probe_ids <- names(maple_gr)[maple_idx]
 
-# Average methylation for duplicate probe IDs
-library(dplyr)
-filtered_meth_maple <- meth_with_probes %>%
-  group_by(probe_id) %>%
-  summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>%
-  as.data.frame()
+  # Check for duplicates (multiple EM-seq CpGs mapping to same MAPLE probe)
+  dup_probes <- duplicated(probe_ids)
+  message("Duplicate probe mappings: ", sum(dup_probes))
 
-# Set probe IDs as rownames
-rownames(filtered_meth_maple) <- filtered_meth_maple$probe_id
-filtered_meth_maple <- filtered_meth_maple[, -1]  # Remove probe_id column
+  # Create data frame with probe IDs and methylation values
+  meth_with_probes <- cbind(probe_id = probe_ids, filtered_meth[emseq_idx, ])
 
-message("MAPLE format beta matrix dimensions: ", nrow(filtered_meth_maple), " x ", ncol(filtered_meth_maple))
-message("Sample probe IDs: ", paste(head(rownames(filtered_meth_maple), 3), collapse = ", "))
+  # Average methylation for duplicate probe IDs
+  filtered_meth_maple <- meth_with_probes %>%
+    group_by(probe_id) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>%
+    as.data.frame()
 
-# Save MAPLE-compatible beta values
-message("Saving MAPLE-compatible beta values...")
-write.csv(filtered_meth_maple, "C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/Beta_values_MAPLE.csv", row.names = TRUE)
-# add rownames as the first column of meth
-meth_df <- data.frame(CpG = rownames(filtered_meth_maple), filtered_meth_maple)
-head(meth_df)
-dim(meth_df)
-write.table(meth_df, "C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/methylation_data_MAPLE.tsv", row.names = FALSE, sep = "\t", quote = FALSE)
+  # Set probe IDs as rownames
+  rownames(filtered_meth_maple) <- filtered_meth_maple$probe_id
+  filtered_meth_maple <- filtered_meth_maple[, -1]  # Remove probe_id column
+  write.csv(filtered_meth_maple, paste0("C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/filtered_meth_maple_cov", coverage_threshold, ".csv"))
+  message("MAPLE format beta matrix dimensions: ", nrow(filtered_meth_maple), " x ", ncol(filtered_meth_maple))
+  message("Sample probe IDs: ", paste(head(rownames(filtered_meth_maple), 3), collapse = ", "))
 
-# Also save the sample metadata
+  # Missing value imputation using KNN
+  message("Checking for missing values...")
+  filtered_meth_maple_matrix <- as.matrix(filtered_meth_maple)
 
-meta_data <- data.frame(sample_id = colnames(filtered_meth_maple))
-rownames(meta_data) <- colnames(filtered_meth_maple)
-write.csv(meta_data, "C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/meta_data_MAPLE.csv", row.names = TRUE)
+  na_count <- sum(is.na(filtered_meth_maple_matrix))
+  if (na_count > 0) {
+    message("Found ", na_count, " missing values (", 
+            round(100 * na_count / length(filtered_meth_maple_matrix), 2), "% of total)")
+    
+    # Increase R expression limit to handle large clusters
+    old_expr <- getOption("expressions")
+    options(expressions = 500000)
+    
+    message("Applying KNN imputation (k=5) with chunking to avoid stack overflow...")
+    
+    if (!requireNamespace("impute", quietly = TRUE)) {
+      BiocManager::install("impute")
+    }
+    library(impute)
+    
+    # Process in chunks to avoid node stack overflow for large matrices
+    chunk_size <- 5000
+    n_probes <- nrow(filtered_meth_maple_matrix)
+    
+    if (n_probes > chunk_size) {
+      message("Processing ", n_probes, " probes in chunks of ", chunk_size)
+      imputed_matrix <- matrix(nrow = n_probes, ncol = ncol(filtered_meth_maple_matrix))
+      
+      for (i in seq(1, n_probes, by = chunk_size)) {
+        end_idx <- min(i + chunk_size - 1, n_probes)
+        message("  Imputing chunk ", ceiling(i/chunk_size), " (rows ", i, " to ", end_idx, ")...")
+        
+        chunk <- filtered_meth_maple_matrix[i:end_idx, , drop = FALSE]
+        imputed_chunk <- impute.knn(chunk, k = 5, rowmax = 0.7, colmax = 0.8)$data
+        imputed_matrix[i:end_idx, ] <- imputed_chunk
+      }
+      
+      rownames(imputed_matrix) <- rownames(filtered_meth_maple_matrix)
+      colnames(imputed_matrix) <- colnames(filtered_meth_maple_matrix)
+      filtered_meth_maple_matrix <- imputed_matrix
+    } else {
+      # Small matrix, process all at once
+      imputed_result <- impute.knn(filtered_meth_maple_matrix, k = 5, rowmax = 0.7, colmax = 0.8)
+      filtered_meth_maple_matrix <- imputed_result$data
+    }
+    # Restore expression limit
+    options(expressions = old_expr)
+    
+    message("Imputation complete. Remaining NAs: ", sum(is.na(filtered_meth_maple_matrix)))
+  } else {
+    message("No missing values found. Skipping imputation.")
+  }
 
+  # Use quantile normalization instead of ChAMP, which produces too many NA values
+
+  message("Applying quantile normalization ...")
+  filtered_meth_maple_normalized <- normalize.quantiles(filtered_meth_maple_matrix, keep.names = TRUE)
+
+  # Convert back to data frame
+  filtered_meth_maple_normalized_df <- as.data.frame(filtered_meth_maple_normalized)
+
+  message("Normalization complete. Normalized dimensions: ", nrow(filtered_meth_maple_normalized_df), " x ", ncol(filtered_meth_maple_normalized_df))
+
+
+  # Round to 3 decimal places to reduce file size
+  filtered_meth_maple_normalized_df <- round(filtered_meth_maple_normalized_df, 3)
+  
+  # Save MAPLE-compatible beta values
+  message("Saving MAPLE-compatible beta values...")
+  write.csv(filtered_meth_maple_normalized_df, 
+            paste0("C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/normalized_Beta_values_MAPLE_cov", coverage_threshold, ".csv"), 
+            row.names = TRUE)
+  # add rownames as the first column of meth
+  meth_df <- data.frame(CpG = rownames(filtered_meth_maple_normalized_df), filtered_meth_maple_normalized_df)
+  head(meth_df)
+  dim(meth_df)
+  write.table(meth_df, 
+              paste0("C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/normalized_methylation_data_MAPLE_cov", coverage_threshold, ".tsv"), 
+              row.names = FALSE, 
+              sep = "\t", 
+              quote = FALSE)
+
+  # Also save the sample metadata
+
+  meta_data <- data.frame(sample_id = colnames(filtered_meth_maple_normalized_df))
+  rownames(meta_data) <- colnames(filtered_meth_maple_normalized_df)
+  write.csv(meta_data, "C:/PROJECTS/Shane/Harding_250611/wo_chrY/DSS/meta_data_MAPLE.csv", row.names = TRUE)
+
+}
