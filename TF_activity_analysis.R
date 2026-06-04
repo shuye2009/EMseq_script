@@ -32,7 +32,7 @@ for (pkg in cran_packages) {
 }
 
 # Install and load Bioconductor packages
-bioc_packages <- c("viper", "org.Hs.eg.db", "mygene", "decoupleR", "OmnipathR", "limma", "netZooR", "pcaMethods", "singscore", "SummarizedExperiment")
+bioc_packages <- c("viper", "org.Hs.eg.db", "mygene", "decoupleR", "OmnipathR", "limma", "netZooR", "pcaMethods", "singscore", "SummarizedExperiment", "GSVA", "scran", "scuttle")
 for (pkg in bioc_packages) {
   install_bioc_if_missing(pkg)
 }
@@ -591,10 +591,10 @@ if (length(deseq2_tf_activities) > 0) {
 
 cat("\n=== Analyzing Luminal to Basal Epithelial Transition ===\n")
 
-# Define marker genes
-basal_markers <- c("KRT5", "KRT14", "KRT15", "TP63", "ITGA6", "ITGB4", "COL17A1", "LAMA3")
-luminal_markers <- c("KRT8", "KRT18", "KRT19", "EPCAM", "CDH1", "MUC1")
-basal_tfs <- c("TP63", "SOX2", "MYC", "TP53", "RUNX1", "GRHL3")
+# Define marker genes from CellMarker2.0 - Breast - experimental and single-cell, Normal cell only
+basal_markers <- c("KRT14", "ACTA2", "KRT5", "TP63", "MELK", "SNAI2")
+luminal_markers <- c("KRT8", "KRT19", "KRT18", "ESR1", "MUC1", "SYTL2", "EPCAM", "CD24", "GATA3")
+basal_tfs <- c("TP63", "SOX2", "KLF7", "TP53", "RUNX1", "GRHL3")
 
 # Extract TPM expression data (not log2 transformed)
 tpm_expression <- expression_matrix
@@ -669,18 +669,39 @@ if (!is.null(basal_expr) && !is.null(luminal_expr)) {
   # Log2 transform for visualization
   all_markers_log <- log2(all_markers + 1)
   
-  pheatmap::pheatmap(
-    all_markers_log,
-    scale = "row",
-    cluster_rows = TRUE,
-    cluster_cols = TRUE,
-    annotation_row = marker_annotation,
-    annotation_col = sample_annotation,
-    main = "Basal vs Luminal Epithelial Markers Expression (TPM)",
-    fontsize_row = 10,
-    cellwidth = 15,
-    cellheight = 12
-  )
+  # Remove rows with NA/NaN/Inf values that cause hclust to fail
+  valid_rows <- apply(all_markers_log, 1, function(x) all(is.finite(x)))
+  if (sum(!valid_rows) > 0) {
+    cat("Removing", sum(!valid_rows), "genes with NA/NaN/Inf values\n")
+    all_markers_log <- all_markers_log[valid_rows, , drop = FALSE]
+    marker_annotation <- marker_annotation[valid_rows, , drop = FALSE]
+  }
+  
+  # Also check for zero-variance rows (cause issues with scale="row")
+  row_vars <- apply(all_markers_log, 1, var, na.rm = TRUE)
+  zero_var_rows <- row_vars == 0 | is.na(row_vars)
+  if (sum(zero_var_rows) > 0) {
+    cat("Removing", sum(zero_var_rows), "genes with zero variance\n")
+    all_markers_log <- all_markers_log[!zero_var_rows, , drop = FALSE]
+    marker_annotation <- marker_annotation[!zero_var_rows, , drop = FALSE]
+  }
+  
+  if (nrow(all_markers_log) >= 2) {
+    pheatmap::pheatmap(
+      all_markers_log,
+      scale = "row",
+      cluster_rows = TRUE,
+      cluster_cols = TRUE,
+      annotation_row = marker_annotation,
+      annotation_col = sample_annotation,
+      main = "Basal vs Luminal Epithelial Markers Expression (TPM)",
+      fontsize_row = 10,
+      cellwidth = 15,
+      cellheight = 12
+    )
+  } else {
+    cat("WARNING: Not enough valid genes for heatmap\n")
+  }
   
   dev.off()
   cat("Marker expression heatmap saved\n")
@@ -2038,12 +2059,1351 @@ if (dir.exists(comp_dir)) {
     cat("WARNING: Not enough EMT genes found in expression matrix\n")
   }
   
+  # ==============================================================================
+  # 76-Gene Tan EMT Signature Score (Tan et al., 2014, EMBO Mol Med)
+  # ==============================================================================
+  
+  cat("\n=== Computing 76-Gene Tan EMT Signature Score ===\n")
+  
+  # 76-gene EMT signature from Tan et al. 2014
+  # "Epithelial-mesenchymal transition spectrum quantification and its efficacy 
+  # in deciphering survival and drug responses of cancer patients"
+  # EMBO Molecular Medicine 6(10):1279-93
+  
+  # Epithelial genes (upregulated in epithelial state)
+  tan_epithelial_genes <- c(
+    "CDH1", "DSP", "OCLN", "CRB3", "PKP3", "CLDN4", "CLDN7", "CLDN3",
+    "MUC1", "TJP3", "ESRP1", "ESRP2", "RAB25", "GRHL2", "GRHL1",
+    "ELF3", "ST14", "SPINT1", "SPINT2", "EPCAM", "MAL2", "EPN3",
+    "PRSS8", "AP1M2", "CDS1", "LLGL2", "IRF6", "OVOL2", "TACSTD2",
+    "LAD1", "MARVELD3", "F11R", "PARD6B", "EPB41L5", "INADL"
+  )
+  
+  # Mesenchymal genes (upregulated in mesenchymal state)
+  tan_mesenchymal_genes <- c(
+    "VIM", "CDH2", "FN1", "SNAI1", "SNAI2", "ZEB1", "ZEB2", "TWIST1",
+    "TWIST2", "TCF4", "FOXC2", "GSC", "SOX10", "PRRX1", "MMP2",
+    "MMP3", "MMP9", "SPARC", "COL1A1", "COL1A2", "COL3A1", "COL5A1",
+    "COL5A2", "ACTA2", "TAGLN", "CNN1", "MYLK", "MYH11", "DES",
+    "S100A4", "SERPINE1", "LOX", "LOXL2", "ITGA5", "ITGB1", "THY1",
+    "FAP", "PDGFRB", "PDGFRA", "WNT5A", "WNT5B"
+  )
+  
+  cat("Tan signature - Epithelial genes:", length(tan_epithelial_genes), "\n")
+  cat("Tan signature - Mesenchymal genes:", length(tan_mesenchymal_genes), "\n")
+  
+  # Filter to genes present in expression matrix
+  tan_epi_present <- tan_epithelial_genes[tan_epithelial_genes %in% rownames(expression_matrix)]
+  tan_mes_present <- tan_mesenchymal_genes[tan_mesenchymal_genes %in% rownames(expression_matrix)]
+  
+  cat("Tan epithelial genes in data:", length(tan_epi_present), "\n")
+  cat("Tan mesenchymal genes in data:", length(tan_mes_present), "\n")
+  
+  if (length(tan_epi_present) >= 5 && length(tan_mes_present) >= 5) {
+    
+    # Tan EMT score calculation method:
+    # 1. Calculate mean expression of epithelial genes per sample
+    # 2. Calculate mean expression of mesenchymal genes per sample
+    # 3. EMT score = mean(mesenchymal) - mean(epithelial)
+    # Score ranges from negative (epithelial) to positive (mesenchymal)
+    
+    # Extract expression for signature genes
+    tan_epi_expr <- expression_matrix[tan_epi_present, , drop = FALSE]
+    tan_mes_expr <- expression_matrix[tan_mes_present, , drop = FALSE]
+    
+    # Calculate mean expression per sample (already log2 transformed)
+    tan_epi_mean <- colMeans(tan_epi_expr, na.rm = TRUE)
+    tan_mes_mean <- colMeans(tan_mes_expr, na.rm = TRUE)
+    
+    # Calculate Tan EMT score
+    tan_emt_score <- tan_mes_mean - tan_epi_mean
+    
+    # Create data frame
+    tan_emt_df <- data.frame(
+      sample = names(tan_emt_score),
+      group = gsub("_.*", "", names(tan_emt_score)),
+      Tan_EMT_Score = tan_emt_score,
+      Tan_Epithelial_Mean = tan_epi_mean,
+      Tan_Mesenchymal_Mean = tan_mes_mean,
+      stringsAsFactors = FALSE
+    )
+    
+    # Save Tan EMT scores
+    write.csv(tan_emt_df,
+              file.path(rnaseq_base_dir, "Tan_EMT_scores.csv"),
+              row.names = FALSE)
+    cat("Tan EMT scores saved to Tan_EMT_scores.csv\n")
+    
+    # Summary by group
+    cat("\n--- Tan EMT Score Summary by Group ---\n")
+    tan_summary <- tan_emt_df %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_EMT = mean(Tan_EMT_Score),
+        sd_EMT = sd(Tan_EMT_Score),
+        mean_Epi = mean(Tan_Epithelial_Mean),
+        mean_Mes = mean(Tan_Mesenchymal_Mean),
+        n = n(),
+        .groups = "drop"
+      )
+    print(tan_summary)
+    
+    # Statistical testing: compare each radiation group to NIR
+    cat("\n--- Tan EMT Statistical Testing (vs NIR) ---\n")
+    nir_tan_emt <- tan_emt_df$Tan_EMT_Score[tan_emt_df$group == "NIR"]
+    
+    rad_groups <- unique(tan_emt_df$group[tan_emt_df$group != "NIR"])
+    
+    tan_stats <- data.frame()
+    
+    for (grp in rad_groups) {
+      grp_tan_emt <- tan_emt_df$Tan_EMT_Score[tan_emt_df$group == grp]
+      
+      # t-test vs NIR
+      tan_test <- t.test(grp_tan_emt, nir_tan_emt)
+      
+      cat(sprintf("%s vs NIR: diff = %.4f, p = %.4f %s\n",
+                  grp,
+                  mean(grp_tan_emt) - mean(nir_tan_emt),
+                  tan_test$p.value,
+                  ifelse(tan_test$p.value < 0.05, "*", "")))
+      
+      tan_stats <- rbind(tan_stats, data.frame(
+        comparison = paste0(grp, "_vs_NIR"),
+        mean_diff = mean(grp_tan_emt) - mean(nir_tan_emt),
+        p_value = tan_test$p.value,
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Add significance labels
+    tan_stats <- tan_stats %>%
+      dplyr::mutate(
+        sig_label = case_when(
+          p_value < 0.001 ~ "***",
+          p_value < 0.01 ~ "**",
+          p_value < 0.05 ~ "*",
+          TRUE ~ "ns"
+        )
+      )
+    
+    # Save statistics
+    write.csv(tan_stats,
+              file.path(rnaseq_base_dir, "Tan_EMT_statistics.csv"),
+              row.names = FALSE)
+    
+    # Visualizations
+    pdf(file.path(rnaseq_base_dir, "Tan_EMT_analysis.pdf"), width = 12, height = 10)
+    
+    # 1. Tan EMT Score bar plot by group
+    tan_plot_data <- tan_emt_df %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_score = mean(Tan_EMT_Score),
+        se_score = sd(Tan_EMT_Score) / sqrt(n()),
+        .groups = "drop"
+      ) %>%
+      dplyr::left_join(
+        tan_stats %>%
+          dplyr::mutate(group = gsub("_vs_NIR", "", comparison)) %>%
+          dplyr::select(group, sig_label),
+        by = "group"
+      ) %>%
+      dplyr::mutate(
+        sig_label = ifelse(is.na(sig_label), "", sig_label),
+        label_y = ifelse(mean_score >= 0, mean_score + se_score + 0.1, mean_score - se_score - 0.1)
+      )
+    
+    p_tan1 <- ggplot(tan_plot_data, aes(x = group, y = mean_score, fill = group)) +
+      geom_bar(stat = "identity", width = 0.7) +
+      geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                    width = 0.25) +
+      geom_text(aes(y = label_y, label = sig_label), size = 5, vjust = 0.5) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(title = "76-Gene Tan EMT Score by Group (Mean ± SE)",
+           subtitle = "Positive = Mesenchymal, Negative = Epithelial | * p<0.05 vs NIR",
+           x = "Group",
+           y = "Tan EMT Score (Mes - Epi)") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+    print(p_tan1)
+    
+    # 2. Boxplot with jitter
+    p_tan2 <- ggplot(tan_emt_df, aes(x = group, y = Tan_EMT_Score, fill = group)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+      geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(title = "76-Gene Tan EMT Score Distribution",
+           subtitle = "Positive = Mesenchymal shift, Negative = Epithelial",
+           x = "Group",
+           y = "Tan EMT Score") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+    print(p_tan2)
+    
+    # 3. Epithelial vs Mesenchymal mean expression
+    tan_long <- tan_emt_df %>%
+      tidyr::pivot_longer(
+        cols = c(Tan_Epithelial_Mean, Tan_Mesenchymal_Mean),
+        names_to = "gene_type",
+        values_to = "mean_expr"
+      ) %>%
+      dplyr::mutate(gene_type = gsub("Tan_|_Mean", "", gene_type))
+    
+    tan_long_summary <- tan_long %>%
+      dplyr::group_by(group, gene_type) %>%
+      dplyr::summarise(
+        mean_expr = mean(mean_expr),
+        se_expr = sd(mean_expr) / sqrt(n()),
+        .groups = "drop"
+      )
+    
+    p_tan3 <- ggplot(tan_long_summary, aes(x = group, y = mean_expr, fill = gene_type)) +
+      geom_bar(stat = "identity", position = position_dodge(0.9), width = 0.8) +
+      geom_errorbar(aes(ymin = mean_expr - se_expr, ymax = mean_expr + se_expr),
+                    position = position_dodge(0.9), width = 0.25) +
+      labs(title = "Tan Signature: Epithelial vs Mesenchymal Gene Expression",
+           x = "Group",
+           y = "Mean log2(TPM+1)",
+           fill = "Gene Type") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      scale_fill_manual(values = c("Epithelial" = "#2E86AB", "Mesenchymal" = "#A23B72"))
+    print(p_tan3)
+    
+    # 4. Comparison: Singscore vs Tan EMT Score
+    if (exists("emt_df")) {
+      comparison_df <- merge(
+        emt_df[, c("sample", "group", "EMT_Score")],
+        tan_emt_df[, c("sample", "Tan_EMT_Score")],
+        by = "sample"
+      )
+      
+      # Correlation
+      cor_test <- cor.test(comparison_df$EMT_Score, comparison_df$Tan_EMT_Score)
+      
+      p_tan4 <- ggplot(comparison_df, aes(x = EMT_Score, y = Tan_EMT_Score, color = group)) +
+        geom_point(size = 3, alpha = 0.7) +
+        geom_smooth(method = "lm", se = TRUE, color = "gray40", linetype = "dashed") +
+        labs(title = "Singscore EMT vs 76-Gene Tan EMT Score",
+             subtitle = sprintf("Pearson r = %.3f, p = %.2e", cor_test$estimate, cor_test$p.value),
+             x = "Singscore EMT Score",
+             y = "Tan EMT Score",
+             color = "Group") +
+        theme_bw()
+      print(p_tan4)
+      
+      cat(sprintf("\nCorrelation between Singscore and Tan EMT: r = %.3f, p = %.2e\n",
+                  cor_test$estimate, cor_test$p.value))
+    }
+    
+    # 5. Heatmap of Tan signature genes
+    tan_all_genes <- c(tan_epi_present, tan_mes_present)
+    tan_expr <- expression_matrix[tan_all_genes, , drop = FALSE]
+    
+    # Z-score normalize
+    tan_expr_z <- t(scale(t(tan_expr)))
+    
+    # Annotation
+    tan_gene_annot <- data.frame(
+      Type = ifelse(rownames(tan_expr_z) %in% tan_epi_present, "Epithelial", "Mesenchymal"),
+      row.names = rownames(tan_expr_z)
+    )
+    
+    tan_sample_annot <- data.frame(
+      Group = gsub("_.*", "", colnames(tan_expr_z)),
+      row.names = colnames(tan_expr_z)
+    )
+    
+    pheatmap::pheatmap(
+      tan_expr_z,
+      cluster_rows = TRUE,
+      cluster_cols = TRUE,
+      annotation_row = tan_gene_annot,
+      annotation_col = tan_sample_annot,
+      main = "76-Gene Tan EMT Signature Expression (Z-score)",
+      color = colorRampPalette(c("blue", "white", "red"))(100),
+      breaks = seq(-3, 3, length.out = 101),
+      fontsize_row = 6,
+      show_rownames = TRUE
+    )
+    
+    dev.off()
+    
+    cat("\nTan EMT analysis plots saved to Tan_EMT_analysis.pdf\n")
+    
+    # Print comparison summary
+    cat("\n--- EMT Score Method Comparison ---\n")
+    if (exists("emt_df")) {
+      method_comparison <- merge(
+        emt_df %>% 
+          dplyr::group_by(group) %>% 
+          dplyr::summarise(Singscore_EMT = mean(EMT_Score), .groups = "drop"),
+        tan_emt_df %>% 
+          dplyr::group_by(group) %>% 
+          dplyr::summarise(Tan_EMT = mean(Tan_EMT_Score), .groups = "drop"),
+        by = "group"
+      )
+      print(method_comparison)
+    }
+    
+  } else {
+    cat("WARNING: Not enough Tan signature genes found in expression matrix\n")
+  }
+  
+  # ==============================================================================
+  # GSVA Analysis for 76-Gene Tan EMT Signature
+  # ==============================================================================
+  
+  cat("\n=== Computing GSVA for 76-Gene Tan EMT Signature ===\n")
+  
+  library(GSVA)
+  
+  # Use the same Tan signature genes defined earlier
+  if (length(tan_epi_present) >= 5 && length(tan_mes_present) >= 5) {
+    
+    # Create gene set list for GSVA
+    emt_gene_sets <- list(
+      Epithelial = tan_epi_present,
+      Mesenchymal = tan_mes_present
+    )
+    
+    cat("Gene sets for GSVA:\n")
+    cat("  Epithelial:", length(emt_gene_sets$Epithelial), "genes\n")
+    cat("  Mesenchymal:", length(emt_gene_sets$Mesenchymal), "genes\n")
+    
+    # GSVA requires expression matrix (genes x samples)
+    # Expression should be log-transformed (which it already is)
+    
+    # Remove duplicate rownames (GSVA requires unique gene names)
+    expr_mat <- as.matrix(expression_matrix)
+    dup_genes <- duplicated(rownames(expr_mat))
+    if (any(dup_genes)) {
+      cat("Removing", sum(dup_genes), "duplicate genes from expression matrix\n")
+      expr_mat <- expr_mat[!dup_genes, , drop = FALSE]
+    }
+    
+    # Detect GSVA version and use appropriate syntax
+    gsva_version <- packageVersion("GSVA")
+    cat("GSVA version:", as.character(gsva_version), "\n")
+    
+    if (gsva_version >= "1.46.0") {
+      # New GSVA API (>= 1.46.0) uses gsvaParam
+      cat("Using new GSVA API (gsvaParam)...\n")
+      gsva_param <- GSVA::gsvaParam(
+        exprData = expr_mat,
+        geneSets = emt_gene_sets,
+        kcdf = "Gaussian"
+      )
+      gsva_results <- GSVA::gsva(gsva_param, verbose = FALSE)
+    } else {
+      # Legacy GSVA API (< 1.46.0)
+      cat("Using legacy GSVA API...\n")
+      gsva_results <- GSVA::gsva(
+        expr = expr_mat,
+        gset.idx.list = emt_gene_sets,
+        kcdf = "Gaussian",
+        verbose = FALSE
+      )
+    }
+    
+    cat("GSVA enrichment scores computed\n")
+    
+    # Extract scores
+    gsva_epi <- gsva_results["Epithelial", ]
+    gsva_mes <- gsva_results["Mesenchymal", ]
+    
+    # Calculate GSVA EMT score (Mesenchymal - Epithelial)
+    gsva_emt_score <- gsva_mes - gsva_epi
+    
+    # Create data frame
+    gsva_emt_df <- data.frame(
+      sample = names(gsva_emt_score),
+      group = gsub("_.*", "", names(gsva_emt_score)),
+      GSVA_EMT_Score = gsva_emt_score,
+      GSVA_Epithelial = gsva_epi,
+      GSVA_Mesenchymal = gsva_mes,
+      stringsAsFactors = FALSE
+    )
+    
+    # Save GSVA EMT scores
+    write.csv(gsva_emt_df,
+              file.path(rnaseq_base_dir, "GSVA_EMT_scores.csv"),
+              row.names = FALSE)
+    cat("GSVA EMT scores saved to GSVA_EMT_scores.csv\n")
+    
+    # Summary by group
+    cat("\n--- GSVA EMT Score Summary by Group ---\n")
+    gsva_summary <- gsva_emt_df %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_EMT = mean(GSVA_EMT_Score),
+        sd_EMT = sd(GSVA_EMT_Score),
+        mean_Epi = mean(GSVA_Epithelial),
+        mean_Mes = mean(GSVA_Mesenchymal),
+        n = n(),
+        .groups = "drop"
+      )
+    print(gsva_summary)
+    
+    # Statistical testing: compare each radiation group to NIR
+    cat("\n--- GSVA EMT Statistical Testing (vs NIR) ---\n")
+    nir_gsva_emt <- gsva_emt_df$GSVA_EMT_Score[gsva_emt_df$group == "NIR"]
+    nir_gsva_epi <- gsva_emt_df$GSVA_Epithelial[gsva_emt_df$group == "NIR"]
+    nir_gsva_mes <- gsva_emt_df$GSVA_Mesenchymal[gsva_emt_df$group == "NIR"]
+    
+    rad_groups <- unique(gsva_emt_df$group[gsva_emt_df$group != "NIR"])
+    
+    gsva_stats <- data.frame()
+    
+    for (grp in rad_groups) {
+      grp_gsva_emt <- gsva_emt_df$GSVA_EMT_Score[gsva_emt_df$group == grp]
+      grp_gsva_epi <- gsva_emt_df$GSVA_Epithelial[gsva_emt_df$group == grp]
+      grp_gsva_mes <- gsva_emt_df$GSVA_Mesenchymal[gsva_emt_df$group == grp]
+      
+      # t-test vs NIR
+      emt_test <- t.test(grp_gsva_emt, nir_gsva_emt)
+      epi_test <- t.test(grp_gsva_epi, nir_gsva_epi)
+      mes_test <- t.test(grp_gsva_mes, nir_gsva_mes)
+      
+      cat(sprintf("%s vs NIR:\n", grp))
+      cat(sprintf("  GSVA EMT: diff = %.4f, p = %.4f %s\n",
+                  mean(grp_gsva_emt) - mean(nir_gsva_emt),
+                  emt_test$p.value,
+                  ifelse(emt_test$p.value < 0.05, "*", "")))
+      cat(sprintf("  Epithelial: diff = %.4f, p = %.4f %s\n",
+                  mean(grp_gsva_epi) - mean(nir_gsva_epi),
+                  epi_test$p.value,
+                  ifelse(epi_test$p.value < 0.05, "*", "")))
+      cat(sprintf("  Mesenchymal: diff = %.4f, p = %.4f %s\n",
+                  mean(grp_gsva_mes) - mean(nir_gsva_mes),
+                  mes_test$p.value,
+                  ifelse(mes_test$p.value < 0.05, "*", "")))
+      
+      gsva_stats <- rbind(gsva_stats, data.frame(
+        comparison = paste0(grp, "_vs_NIR"),
+        score_type = c("EMT", "Epithelial", "Mesenchymal"),
+        mean_diff = c(mean(grp_gsva_emt) - mean(nir_gsva_emt),
+                      mean(grp_gsva_epi) - mean(nir_gsva_epi),
+                      mean(grp_gsva_mes) - mean(nir_gsva_mes)),
+        p_value = c(emt_test$p.value, epi_test$p.value, mes_test$p.value),
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Add significance labels
+    gsva_stats <- gsva_stats %>%
+      dplyr::mutate(
+        sig_label = case_when(
+          p_value < 0.001 ~ "***",
+          p_value < 0.01 ~ "**",
+          p_value < 0.05 ~ "*",
+          TRUE ~ "ns"
+        )
+      )
+    
+    # Save statistics
+    write.csv(gsva_stats,
+              file.path(rnaseq_base_dir, "GSVA_EMT_statistics.csv"),
+              row.names = FALSE)
+    
+    # Visualizations
+    pdf(file.path(rnaseq_base_dir, "GSVA_EMT_analysis.pdf"), width = 14, height = 12)
+    
+    # 1. GSVA EMT Score bar plot by group
+    gsva_plot_data <- gsva_emt_df %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_score = mean(GSVA_EMT_Score),
+        se_score = sd(GSVA_EMT_Score) / sqrt(n()),
+        .groups = "drop"
+      ) %>%
+      dplyr::left_join(
+        gsva_stats %>%
+          dplyr::filter(score_type == "EMT") %>%
+          dplyr::mutate(group = gsub("_vs_NIR", "", comparison)) %>%
+          dplyr::select(group, sig_label),
+        by = "group"
+      ) %>%
+      dplyr::mutate(
+        sig_label = ifelse(is.na(sig_label), "", sig_label),
+        label_y = ifelse(mean_score >= 0, mean_score + se_score + 0.05, mean_score - se_score - 0.05)
+      )
+    
+    p_gsva1 <- ggplot(gsva_plot_data, aes(x = group, y = mean_score, fill = group)) +
+      geom_bar(stat = "identity", width = 0.7) +
+      geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                    width = 0.25) +
+      geom_text(aes(y = label_y, label = sig_label), size = 5, vjust = 0.5) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(title = "GSVA EMT Score by Group (Mean ± SE)",
+           subtitle = "Positive = Mesenchymal, Negative = Epithelial | * p<0.05 vs NIR",
+           x = "Group",
+           y = "GSVA EMT Score (Mes - Epi)") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+    print(p_gsva1)
+    
+    # 2. Boxplot with jitter
+    p_gsva2 <- ggplot(gsva_emt_df, aes(x = group, y = GSVA_EMT_Score, fill = group)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+      geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(title = "GSVA EMT Score Distribution",
+           subtitle = "Positive = Mesenchymal shift, Negative = Epithelial",
+           x = "Group",
+           y = "GSVA EMT Score") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+    print(p_gsva2)
+    
+    # 3. Epithelial vs Mesenchymal GSVA scores
+    gsva_long <- gsva_emt_df %>%
+      tidyr::pivot_longer(
+        cols = c(GSVA_Epithelial, GSVA_Mesenchymal),
+        names_to = "score_type",
+        values_to = "score"
+      ) %>%
+      dplyr::mutate(score_type = gsub("GSVA_", "", score_type))
+    
+    gsva_long_summary <- gsva_long %>%
+      dplyr::group_by(group, score_type) %>%
+      dplyr::summarise(
+        mean_score = mean(score),
+        se_score = sd(score) / sqrt(n()),
+        .groups = "drop"
+      ) %>%
+      dplyr::left_join(
+        gsva_stats %>%
+          dplyr::mutate(group = gsub("_vs_NIR", "", comparison)) %>%
+          dplyr::select(group, score_type, sig_label),
+        by = c("group", "score_type")
+      ) %>%
+      dplyr::mutate(
+        sig_label = ifelse(is.na(sig_label), "", sig_label),
+        label_y = mean_score + se_score + 0.03
+      )
+    
+    p_gsva3 <- ggplot(gsva_long_summary, aes(x = group, y = mean_score, fill = score_type)) +
+      geom_bar(stat = "identity", position = position_dodge(0.9), width = 0.8) +
+      geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                    position = position_dodge(0.9), width = 0.25) +
+      geom_text(aes(y = label_y, label = sig_label),
+                position = position_dodge(0.9), size = 4, vjust = 0) +
+      labs(title = "GSVA Epithelial vs Mesenchymal Enrichment Scores",
+           subtitle = "* p<0.05, ** p<0.01, *** p<0.001 vs NIR",
+           x = "Group",
+           y = "GSVA Enrichment Score",
+           fill = "Gene Set") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      scale_fill_manual(values = c("Epithelial" = "#2E86AB", "Mesenchymal" = "#A23B72"))
+    print(p_gsva3)
+    
+    # 4. Faceted bar plot
+    p_gsva4 <- ggplot(gsva_long_summary, aes(x = group, y = mean_score, fill = score_type)) +
+      geom_bar(stat = "identity", width = 0.7) +
+      geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                    width = 0.25) +
+      geom_text(aes(y = label_y, label = sig_label), size = 4, vjust = 0) +
+      facet_wrap(~ score_type, ncol = 1, scales = "free_y") +
+      labs(title = "GSVA EMT Component Scores by Group",
+           subtitle = "* p<0.05, ** p<0.01, *** p<0.001 vs NIR",
+           x = "Group",
+           y = "GSVA Enrichment Score") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none") +
+      scale_fill_manual(values = c("Epithelial" = "#2E86AB", "Mesenchymal" = "#A23B72"))
+    print(p_gsva4)
+    
+    # 5. Comparison of all three EMT scoring methods
+    if (exists("emt_df") && exists("tan_emt_df")) {
+      all_methods_df <- merge(
+        merge(
+          emt_df[, c("sample", "group", "EMT_Score")],
+          tan_emt_df[, c("sample", "Tan_EMT_Score")],
+          by = "sample"
+        ),
+        gsva_emt_df[, c("sample", "GSVA_EMT_Score")],
+        by = "sample"
+      )
+      
+      # Rename for clarity
+      colnames(all_methods_df) <- c("sample", "group", "Singscore", "Tan", "GSVA")
+      
+      # Correlation matrix
+      cor_matrix <- cor(all_methods_df[, c("Singscore", "Tan", "GSVA")], use = "complete.obs")
+      
+      cat("\n--- EMT Score Method Correlations ---\n")
+      print(round(cor_matrix, 3))
+      
+      # Pairwise scatter plots
+      # Singscore vs GSVA
+      cor_sg <- cor.test(all_methods_df$Singscore, all_methods_df$GSVA)
+      p_comp1 <- ggplot(all_methods_df, aes(x = Singscore, y = GSVA, color = group)) +
+        geom_point(size = 3, alpha = 0.7) +
+        geom_smooth(method = "lm", se = TRUE, color = "gray40", linetype = "dashed") +
+        labs(title = "Singscore vs GSVA EMT Score",
+             subtitle = sprintf("Pearson r = %.3f, p = %.2e", cor_sg$estimate, cor_sg$p.value),
+             x = "Singscore EMT",
+             y = "GSVA EMT",
+             color = "Group") +
+        theme_bw()
+      print(p_comp1)
+      
+      # Tan vs GSVA
+      cor_tg <- cor.test(all_methods_df$Tan, all_methods_df$GSVA)
+      p_comp2 <- ggplot(all_methods_df, aes(x = Tan, y = GSVA, color = group)) +
+        geom_point(size = 3, alpha = 0.7) +
+        geom_smooth(method = "lm", se = TRUE, color = "gray40", linetype = "dashed") +
+        labs(title = "Tan vs GSVA EMT Score",
+             subtitle = sprintf("Pearson r = %.3f, p = %.2e", cor_tg$estimate, cor_tg$p.value),
+             x = "Tan EMT Score",
+             y = "GSVA EMT",
+             color = "Group") +
+        theme_bw()
+      print(p_comp2)
+      
+      # Summary comparison by group
+      methods_long <- all_methods_df %>%
+        tidyr::pivot_longer(
+          cols = c(Singscore, Tan, GSVA),
+          names_to = "Method",
+          values_to = "EMT_Score"
+        )
+      
+      methods_summary <- methods_long %>%
+        dplyr::group_by(group, Method) %>%
+        dplyr::summarise(
+          mean_score = mean(EMT_Score),
+          se_score = sd(EMT_Score) / sqrt(n()),
+          .groups = "drop"
+        )
+      
+      p_comp3 <- ggplot(methods_summary, aes(x = group, y = mean_score, fill = Method)) +
+        geom_bar(stat = "identity", position = position_dodge(0.9), width = 0.8) +
+        geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                      position = position_dodge(0.9), width = 0.25) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        labs(title = "EMT Score Comparison: Three Methods",
+             subtitle = "Singscore, Tan (76-gene), and GSVA",
+             x = "Group",
+             y = "EMT Score",
+             fill = "Method") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        scale_fill_manual(values = c("Singscore" = "#E69F00", "Tan" = "#56B4E9", "GSVA" = "#009E73"))
+      print(p_comp3)
+      
+      # Final summary table
+      cat("\n--- EMT Score Summary: All Methods ---\n")
+      final_summary <- methods_long %>%
+        dplyr::group_by(group, Method) %>%
+        dplyr::summarise(mean_EMT = mean(EMT_Score), .groups = "drop") %>%
+        tidyr::pivot_wider(names_from = Method, values_from = mean_EMT)
+      print(final_summary)
+      
+      # Save combined results
+      write.csv(all_methods_df,
+                file.path(rnaseq_base_dir, "EMT_all_methods_comparison.csv"),
+                row.names = FALSE)
+    }
+    
+    dev.off()
+    
+    cat("\nGSVA EMT analysis plots saved to GSVA_EMT_analysis.pdf\n")
+    
+  } else {
+    cat("WARNING: Not enough Tan signature genes for GSVA analysis\n")
+  }
+  
+  # ==============================================================================
+  # MLR (Multinomial Logistic Regression) EMT Score
+  # Based on Cursons et al. approach - classifies E, E/M hybrid, M states
+  # ==============================================================================
+  
+  cat("\n=== Computing MLR-based EMT Score ===\n")
+  
+  # MLR EMT scoring uses a weighted combination of epithelial and mesenchymal genes
+
+  # The approach assigns samples to E, E/M (hybrid), or M states based on
+  # the relative expression of signature genes
+  
+  # We'll implement a simplified MLR-like approach:
+  # 1. Z-score normalize expression of signature genes
+  # 2. Calculate weighted scores for E and M
+  # 3. Compute probability-like scores for each state
+  # 4. Assign EMT state based on relative scores
+  
+  if (length(tan_epi_present) >= 5 && length(tan_mes_present) >= 5) {
+    
+    # Extract and z-score normalize signature gene expression
+    epi_expr <- expression_matrix[tan_epi_present, , drop = FALSE]
+    mes_expr <- expression_matrix[tan_mes_present, , drop = FALSE]
+    
+    # Z-score normalize across samples (each gene)
+    epi_expr_z <- t(scale(t(epi_expr)))
+    mes_expr_z <- t(scale(t(mes_expr)))
+    
+    # Calculate mean z-scores for each signature per sample
+    epi_zscore <- colMeans(epi_expr_z, na.rm = TRUE)
+    mes_zscore <- colMeans(mes_expr_z, na.rm = TRUE)
+    
+    # MLR-like scoring: compute softmax-like probabilities
+    # Higher epithelial z-score -> more epithelial
+    # Higher mesenchymal z-score -> more mesenchymal
+    
+    # Calculate raw scores
+    # E score: high epithelial, low mesenchymal
+    # M score: high mesenchymal, low epithelial
+    # E/M score: intermediate
+    
+    e_raw <- epi_zscore - mes_zscore
+    m_raw <- mes_zscore - epi_zscore
+    
+    # Apply softmax to get probabilities
+    softmax <- function(x) {
+      exp_x <- exp(x - max(x))  # Subtract max for numerical stability
+      exp_x / sum(exp_x)
+    }
+    
+    # Calculate probabilities for each sample
+    mlr_probs <- data.frame(
+      sample = colnames(expression_matrix),
+      group = gsub("_.*", "", colnames(expression_matrix)),
+      E_zscore = epi_zscore,
+      M_zscore = mes_zscore,
+      stringsAsFactors = FALSE
+    )
+    
+    # Calculate E, E/M, M probabilities using a 3-class approach
+    # E: e_raw > threshold
+    # M: m_raw > threshold
+    # E/M: intermediate
+    
+    mlr_probs$E_score <- pnorm(e_raw, mean = 0, sd = 1)  # Probability of being epithelial
+    mlr_probs$M_score <- pnorm(m_raw, mean = 0, sd = 1)  # Probability of being mesenchymal
+    mlr_probs$EM_score <- 1 - abs(mlr_probs$E_score - mlr_probs$M_score)  # Hybrid score
+    
+    # Normalize to sum to 1
+    prob_sum <- mlr_probs$E_score + mlr_probs$M_score + mlr_probs$EM_score
+    mlr_probs$E_prob <- mlr_probs$E_score / prob_sum
+    mlr_probs$M_prob <- mlr_probs$M_score / prob_sum
+    mlr_probs$EM_prob <- mlr_probs$EM_score / prob_sum
+    
+    # Assign EMT state based on highest probability
+    mlr_probs$EMT_State <- apply(mlr_probs[, c("E_prob", "M_prob", "EM_prob")], 1, function(x) {
+      states <- c("Epithelial", "Mesenchymal", "Hybrid_E/M")
+      states[which.max(x)]
+    })
+    
+    # Calculate continuous MLR EMT score (-1 to 1 scale)
+    # -1 = fully epithelial, 0 = hybrid, +1 = fully mesenchymal
+    mlr_probs$MLR_EMT_Score <- mlr_probs$M_prob - mlr_probs$E_prob
+    
+    cat("MLR EMT scores computed\n")
+    
+    # Save MLR EMT scores
+    write.csv(mlr_probs,
+              file.path(rnaseq_base_dir, "MLR_EMT_scores.csv"),
+              row.names = FALSE)
+    cat("MLR EMT scores saved to MLR_EMT_scores.csv\n")
+    
+    # Summary by group
+    cat("\n--- MLR EMT Score Summary by Group ---\n")
+    mlr_summary <- mlr_probs %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_MLR_EMT = mean(MLR_EMT_Score),
+        sd_MLR_EMT = sd(MLR_EMT_Score),
+        mean_E_prob = mean(E_prob),
+        mean_M_prob = mean(M_prob),
+        mean_EM_prob = mean(EM_prob),
+        n = n(),
+        .groups = "drop"
+      )
+    print(mlr_summary)
+    
+    # EMT state distribution
+    cat("\n--- EMT State Distribution by Group ---\n")
+    state_dist <- mlr_probs %>%
+      dplyr::group_by(group, EMT_State) %>%
+      dplyr::summarise(n = n(), .groups = "drop") %>%
+      tidyr::pivot_wider(names_from = EMT_State, values_from = n, values_fill = 0)
+    print(state_dist)
+    
+    # Statistical testing: compare each radiation group to NIR
+    cat("\n--- MLR EMT Statistical Testing (vs NIR) ---\n")
+    nir_mlr <- mlr_probs$MLR_EMT_Score[mlr_probs$group == "NIR"]
+    
+    rad_groups <- unique(mlr_probs$group[mlr_probs$group != "NIR"])
+    
+    mlr_stats <- data.frame()
+    
+    for (grp in rad_groups) {
+      grp_mlr <- mlr_probs$MLR_EMT_Score[mlr_probs$group == grp]
+      
+      # t-test vs NIR
+      mlr_test <- t.test(grp_mlr, nir_mlr)
+      
+      cat(sprintf("%s vs NIR: diff = %.4f, p = %.4f %s\n",
+                  grp,
+                  mean(grp_mlr) - mean(nir_mlr),
+                  mlr_test$p.value,
+                  ifelse(mlr_test$p.value < 0.05, "*", "")))
+      
+      mlr_stats <- rbind(mlr_stats, data.frame(
+        comparison = paste0(grp, "_vs_NIR"),
+        mean_diff = mean(grp_mlr) - mean(nir_mlr),
+        p_value = mlr_test$p.value,
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Add significance labels
+    mlr_stats <- mlr_stats %>%
+      dplyr::mutate(
+        sig_label = case_when(
+          p_value < 0.001 ~ "***",
+          p_value < 0.01 ~ "**",
+          p_value < 0.05 ~ "*",
+          TRUE ~ "ns"
+        )
+      )
+    
+    # Save statistics
+    write.csv(mlr_stats,
+              file.path(rnaseq_base_dir, "MLR_EMT_statistics.csv"),
+              row.names = FALSE)
+    
+    # Visualizations
+    pdf(file.path(rnaseq_base_dir, "MLR_EMT_analysis.pdf"), width = 14, height = 12)
+    
+    # 1. MLR EMT Score bar plot by group
+    mlr_plot_data <- mlr_probs %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_score = mean(MLR_EMT_Score),
+        se_score = sd(MLR_EMT_Score) / sqrt(n()),
+        .groups = "drop"
+      ) %>%
+      dplyr::left_join(
+        mlr_stats %>%
+          dplyr::mutate(group = gsub("_vs_NIR", "", comparison)) %>%
+          dplyr::select(group, sig_label),
+        by = "group"
+      ) %>%
+      dplyr::mutate(
+        sig_label = ifelse(is.na(sig_label), "", sig_label),
+        label_y = ifelse(mean_score >= 0, mean_score + se_score + 0.02, mean_score - se_score - 0.02)
+      )
+    
+    p_mlr1 <- ggplot(mlr_plot_data, aes(x = group, y = mean_score, fill = group)) +
+      geom_bar(stat = "identity", width = 0.7) +
+      geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                    width = 0.25) +
+      geom_text(aes(y = label_y, label = sig_label), size = 5, vjust = 0.5) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(title = "MLR EMT Score by Group (Mean ± SE)",
+           subtitle = "Score: -1 = Epithelial, 0 = Hybrid, +1 = Mesenchymal | * p<0.05 vs NIR",
+           x = "Group",
+           y = "MLR EMT Score") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none") +
+      scale_y_continuous(limits = c(-1, 1))
+    print(p_mlr1)
+    
+    # 2. Boxplot with jitter
+    p_mlr2 <- ggplot(mlr_probs, aes(x = group, y = MLR_EMT_Score, fill = group)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+      geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(title = "MLR EMT Score Distribution",
+           subtitle = "-1 = Epithelial, 0 = Hybrid, +1 = Mesenchymal",
+           x = "Group",
+           y = "MLR EMT Score") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none") +
+      scale_y_continuous(limits = c(-1, 1))
+    print(p_mlr2)
+    
+    # 3. Stacked bar plot of EMT state proportions
+    state_props <- mlr_probs %>%
+      dplyr::group_by(group, EMT_State) %>%
+      dplyr::summarise(n = n(), .groups = "drop") %>%
+      dplyr::group_by(group) %>%
+      dplyr::mutate(prop = n / sum(n)) %>%
+      dplyr::ungroup()
+    
+    # Order EMT states
+    state_props$EMT_State <- factor(state_props$EMT_State, 
+                                     levels = c("Epithelial", "Hybrid_E/M", "Mesenchymal"))
+    
+    p_mlr3 <- ggplot(state_props, aes(x = group, y = prop, fill = EMT_State)) +
+      geom_bar(stat = "identity", position = "stack") +
+      labs(title = "EMT State Distribution by Group",
+           subtitle = "Based on MLR classification",
+           x = "Group",
+           y = "Proportion",
+           fill = "EMT State") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      scale_fill_manual(values = c("Epithelial" = "#2E86AB", 
+                                    "Hybrid_E/M" = "#F6AE2D", 
+                                    "Mesenchymal" = "#A23B72"))
+    print(p_mlr3)
+    
+    # 4. Ternary-like plot: E vs M probabilities
+    p_mlr4 <- ggplot(mlr_probs, aes(x = E_prob, y = M_prob, color = group)) +
+      geom_point(size = 3, alpha = 0.7) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+      labs(title = "Epithelial vs Mesenchymal Probability",
+           subtitle = "Points above diagonal = more mesenchymal",
+           x = "Epithelial Probability",
+           y = "Mesenchymal Probability",
+           color = "Group") +
+      theme_bw() +
+      coord_fixed()
+    print(p_mlr4)
+    
+    # 5. E/M z-score scatter
+    p_mlr5 <- ggplot(mlr_probs, aes(x = E_zscore, y = M_zscore, color = group, shape = EMT_State)) +
+      geom_point(size = 3, alpha = 0.7) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+      labs(title = "Epithelial vs Mesenchymal Z-scores",
+           subtitle = "Quadrants indicate EMT state",
+           x = "Epithelial Z-score",
+           y = "Mesenchymal Z-score",
+           color = "Group",
+           shape = "EMT State") +
+      theme_bw()
+    print(p_mlr5)
+    
+    # 6. Comparison of all four EMT scoring methods
+    if (exists("emt_df") && exists("tan_emt_df") && exists("gsva_emt_df")) {
+      all_methods_df <- merge(
+        merge(
+          merge(
+            emt_df[, c("sample", "group", "EMT_Score")],
+            tan_emt_df[, c("sample", "Tan_EMT_Score")],
+            by = "sample"
+          ),
+          gsva_emt_df[, c("sample", "GSVA_EMT_Score")],
+          by = "sample"
+        ),
+        mlr_probs[, c("sample", "MLR_EMT_Score")],
+        by = "sample"
+      )
+      
+      # Rename for clarity
+      colnames(all_methods_df) <- c("sample", "group", "Singscore", "Tan", "GSVA", "MLR")
+      
+      # Correlation matrix
+      cor_matrix <- cor(all_methods_df[, c("Singscore", "Tan", "GSVA", "MLR")], use = "complete.obs")
+      
+      cat("\n--- EMT Score Method Correlations (4 methods) ---\n")
+      print(round(cor_matrix, 3))
+      
+      # Summary comparison by group
+      methods_long <- all_methods_df %>%
+        tidyr::pivot_longer(
+          cols = c(Singscore, Tan, GSVA, MLR),
+          names_to = "Method",
+          values_to = "EMT_Score"
+        )
+      
+      methods_summary <- methods_long %>%
+        dplyr::group_by(group, Method) %>%
+        dplyr::summarise(
+          mean_score = mean(EMT_Score),
+          se_score = sd(EMT_Score) / sqrt(n()),
+          .groups = "drop"
+        )
+      
+      # Order methods
+      methods_summary$Method <- factor(methods_summary$Method, 
+                                        levels = c("Singscore", "Tan", "GSVA", "MLR"))
+      
+      p_mlr6 <- ggplot(methods_summary, aes(x = group, y = mean_score, fill = Method)) +
+        geom_bar(stat = "identity", position = position_dodge(0.9), width = 0.8) +
+        geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                      position = position_dodge(0.9), width = 0.25) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        labs(title = "EMT Score Comparison: Four Methods",
+             subtitle = "Singscore, Tan (76-gene), GSVA, and MLR",
+             x = "Group",
+             y = "EMT Score",
+             fill = "Method") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        scale_fill_manual(values = c("Singscore" = "#E69F00", "Tan" = "#56B4E9", 
+                                      "GSVA" = "#009E73", "MLR" = "#CC79A7"))
+      print(p_mlr6)
+      
+      # Final summary table
+      cat("\n--- EMT Score Summary: All Four Methods ---\n")
+      final_summary <- methods_long %>%
+        dplyr::group_by(group, Method) %>%
+        dplyr::summarise(mean_EMT = mean(EMT_Score), .groups = "drop") %>%
+        tidyr::pivot_wider(names_from = Method, values_from = mean_EMT)
+      print(final_summary)
+      
+      # Save combined results
+      write.csv(all_methods_df,
+                file.path(rnaseq_base_dir, "EMT_all_four_methods_comparison.csv"),
+                row.names = FALSE)
+    }
+    
+    dev.off()
+    
+    cat("\nMLR EMT analysis plots saved to MLR_EMT_analysis.pdf\n")
+    
+  } else {
+    cat("WARNING: Not enough signature genes for MLR EMT analysis\n")
+  }
+  
+  # ==============================================================================
+  # Cell Cycle Phase Analysis using scran cyclone
+  # ==============================================================================
+  
+  cat("\n=== Cell Cycle Phase Analysis (scran cyclone) ===\n")
+  
+  library(scran)
+  library(scuttle)
+  
+  # Get human cell cycle marker pairs from scran
+  # These are pre-trained pairs of genes for G1, S, and G2M phases
+  hs_pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package = "scran"))
+  
+  cat("Loaded cell cycle marker pairs:\n")
+  cat("  G1 pairs:", nrow(hs_pairs$G1), "\n")
+  cat("  S pairs:", nrow(hs_pairs$S), "\n")
+  cat("  G2M pairs:", nrow(hs_pairs$G2M), "\n")
+  
+  # Prepare expression matrix - cyclone expects genes as rows, samples as columns
+  # Expression should be log-transformed (which it already is)
+  expr_mat_cc <- as.matrix(expression_matrix)
+  
+  # Remove duplicate genes
+  dup_genes_cc <- duplicated(rownames(expr_mat_cc))
+  if (any(dup_genes_cc)) {
+    cat("Removing", sum(dup_genes_cc), "duplicate genes\n")
+    expr_mat_cc <- expr_mat_cc[!dup_genes_cc, , drop = FALSE]
+  }
+  
+  # cyclone marker pairs use Ensembl gene IDs - convert gene symbols to Ensembl
+  cat("Converting gene symbols to Ensembl IDs for cyclone...\n")
+  
+  # Get mapping from org.Hs.eg.db
+  library(org.Hs.eg.db)
+  
+  # Map gene symbols to Ensembl IDs
+  gene_symbols <- rownames(expr_mat_cc)
+  symbol_to_ensembl <- AnnotationDbi::select(
+    org.Hs.eg.db,
+    keys = gene_symbols,
+    columns = c("SYMBOL", "ENSEMBL"),
+    keytype = "SYMBOL"
+  )
+  
+  # Remove NAs and duplicates (keep first mapping)
+  symbol_to_ensembl <- symbol_to_ensembl[!is.na(symbol_to_ensembl$ENSEMBL), ]
+  symbol_to_ensembl <- symbol_to_ensembl[!duplicated(symbol_to_ensembl$SYMBOL), ]
+  
+  cat("Mapped", nrow(symbol_to_ensembl), "genes to Ensembl IDs\n")
+  
+  # Create mapping vector
+  ensembl_map <- setNames(symbol_to_ensembl$ENSEMBL, symbol_to_ensembl$SYMBOL)
+  
+  # Filter expression matrix to genes with Ensembl mapping
+  genes_with_ensembl <- gene_symbols[gene_symbols %in% names(ensembl_map)]
+  expr_mat_cc <- expr_mat_cc[genes_with_ensembl, , drop = FALSE]
+  
+  # Convert rownames to Ensembl IDs
+  rownames(expr_mat_cc) <- ensembl_map[rownames(expr_mat_cc)]
+  
+  # Remove any duplicates after conversion
+  dup_ensembl <- duplicated(rownames(expr_mat_cc))
+  if (any(dup_ensembl)) {
+    cat("Removing", sum(dup_ensembl), "duplicate Ensembl IDs\n")
+    expr_mat_cc <- expr_mat_cc[!dup_ensembl, , drop = FALSE]
+  }
+  
+  cat("Expression matrix now has", nrow(expr_mat_cc), "genes with Ensembl IDs\n")
+  
+  # Check overlap with marker genes
+  all_marker_genes <- unique(c(
+    hs_pairs$G1$first, hs_pairs$G1$second,
+    hs_pairs$S$first, hs_pairs$S$second,
+    hs_pairs$G2M$first, hs_pairs$G2M$second
+  ))
+  marker_overlap <- sum(all_marker_genes %in% rownames(expr_mat_cc))
+  cat("Marker genes in expression data:", marker_overlap, "/", length(all_marker_genes), "\n")
+  
+  if (marker_overlap >= 50) {
+    
+    # Run cyclone
+    cat("Running cyclone cell cycle assignment...\n")
+    cc_assignments <- cyclone(expr_mat_cc, pairs = hs_pairs)
+    
+    # Create results data frame
+    cc_df <- data.frame(
+      sample = colnames(expr_mat_cc),
+      group = gsub("_.*", "", colnames(expr_mat_cc)),
+      G1_score = cc_assignments$scores$G1,
+      S_score = cc_assignments$scores$S,
+      G2M_score = cc_assignments$scores$G2M,
+      phase = cc_assignments$phases,
+      stringsAsFactors = FALSE
+    )
+    
+    # Normalize scores to sum to 1 (approximate phase fractions)
+    score_sum <- cc_df$G1_score + cc_df$S_score + cc_df$G2M_score
+    cc_df$G1_fraction <- cc_df$G1_score / score_sum
+    cc_df$S_fraction <- cc_df$S_score / score_sum
+    cc_df$G2M_fraction <- cc_df$G2M_score / score_sum
+    
+    cat("\nCell cycle assignments completed\n")
+    
+    # Save cell cycle scores
+    write.csv(cc_df,
+              file.path(rnaseq_base_dir, "cell_cycle_scores.csv"),
+              row.names = FALSE)
+    cat("Cell cycle scores saved to cell_cycle_scores.csv\n")
+    
+    # Summary by group
+    cat("\n--- Cell Cycle Phase Distribution by Group ---\n")
+    phase_dist <- cc_df %>%
+      dplyr::group_by(group, phase) %>%
+      dplyr::summarise(n = n(), .groups = "drop") %>%
+      tidyr::pivot_wider(names_from = phase, values_from = n, values_fill = 0)
+    print(phase_dist)
+    
+    # Mean scores by group
+    cat("\n--- Mean Cell Cycle Scores by Group ---\n")
+    cc_summary <- cc_df %>%
+      dplyr::group_by(group) %>%
+      dplyr::summarise(
+        mean_G1 = mean(G1_score),
+        mean_S = mean(S_score),
+        mean_G2M = mean(G2M_score),
+        mean_G1_frac = mean(G1_fraction),
+        mean_S_frac = mean(S_fraction),
+        mean_G2M_frac = mean(G2M_fraction),
+        n = n(),
+        .groups = "drop"
+      )
+    print(cc_summary)
+    
+    # Statistical testing: compare each radiation group to NIR
+    cat("\n--- Cell Cycle Statistical Testing (vs NIR) ---\n")
+    nir_g1 <- cc_df$G1_fraction[cc_df$group == "NIR"]
+    nir_s <- cc_df$S_fraction[cc_df$group == "NIR"]
+    nir_g2m <- cc_df$G2M_fraction[cc_df$group == "NIR"]
+    
+    rad_groups <- unique(cc_df$group[cc_df$group != "NIR"])
+    
+    cc_stats <- data.frame()
+    
+    for (grp in rad_groups) {
+      grp_g1 <- cc_df$G1_fraction[cc_df$group == grp]
+      grp_s <- cc_df$S_fraction[cc_df$group == grp]
+      grp_g2m <- cc_df$G2M_fraction[cc_df$group == grp]
+      
+      # t-tests vs NIR
+      g1_test <- t.test(grp_g1, nir_g1)
+      s_test <- t.test(grp_s, nir_s)
+      g2m_test <- t.test(grp_g2m, nir_g2m)
+      
+      cat(sprintf("%s vs NIR:\n", grp))
+      cat(sprintf("  G1: diff = %.4f, p = %.4f %s\n",
+                  mean(grp_g1) - mean(nir_g1), g1_test$p.value,
+                  ifelse(g1_test$p.value < 0.05, "*", "")))
+      cat(sprintf("  S:  diff = %.4f, p = %.4f %s\n",
+                  mean(grp_s) - mean(nir_s), s_test$p.value,
+                  ifelse(s_test$p.value < 0.05, "*", "")))
+      cat(sprintf("  G2M: diff = %.4f, p = %.4f %s\n",
+                  mean(grp_g2m) - mean(nir_g2m), g2m_test$p.value,
+                  ifelse(g2m_test$p.value < 0.05, "*", "")))
+      
+      cc_stats <- rbind(cc_stats, data.frame(
+        comparison = paste0(grp, "_vs_NIR"),
+        phase = c("G1", "S", "G2M"),
+        mean_diff = c(mean(grp_g1) - mean(nir_g1),
+                      mean(grp_s) - mean(nir_s),
+                      mean(grp_g2m) - mean(nir_g2m)),
+        p_value = c(g1_test$p.value, s_test$p.value, g2m_test$p.value),
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Add significance labels
+    cc_stats <- cc_stats %>%
+      dplyr::mutate(
+        sig_label = case_when(
+          p_value < 0.001 ~ "***",
+          p_value < 0.01 ~ "**",
+          p_value < 0.05 ~ "*",
+          TRUE ~ "ns"
+        )
+      )
+    
+    # Save statistics
+    write.csv(cc_stats,
+              file.path(rnaseq_base_dir, "cell_cycle_statistics.csv"),
+              row.names = FALSE)
+    
+    # Visualizations
+    pdf(file.path(rnaseq_base_dir, "cell_cycle_analysis.pdf"), width = 14, height = 12)
+    
+    # 1. Stacked bar plot of phase fractions
+    cc_long <- cc_df %>%
+      dplyr::select(sample, group, G1_fraction, S_fraction, G2M_fraction) %>%
+      tidyr::pivot_longer(
+        cols = c(G1_fraction, S_fraction, G2M_fraction),
+        names_to = "phase_name",
+        values_to = "fraction"
+      ) %>%
+      dplyr::mutate(phase_name = gsub("_fraction", "", phase_name))
+    
+    cc_long_summary <- cc_long %>%
+      dplyr::group_by(group, phase_name) %>%
+      dplyr::summarise(
+        mean_frac = mean(fraction),
+        se_frac = sd(fraction) / sqrt(n()),
+        .groups = "drop"
+      )
+    
+    # Order phases
+    cc_long_summary$phase_name <- factor(cc_long_summary$phase_name, levels = c("G1", "S", "G2M"))
+    
+    p_cc1 <- ggplot(cc_long_summary, aes(x = group, y = mean_frac, fill = phase_name)) +
+      geom_bar(stat = "identity", position = "stack") +
+      labs(title = "Cell Cycle Phase Distribution by Group",
+           subtitle = "Based on scran cyclone analysis",
+           x = "Group",
+           y = "Fraction",
+           fill = "Phase") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      scale_fill_manual(values = c("G1" = "#E69F00", "S" = "#56B4E9", "G2M" = "#009E73"))
+    print(p_cc1)
+    
+    # 2. Grouped bar plot with error bars
+    p_cc2 <- ggplot(cc_long_summary, aes(x = group, y = mean_frac, fill = phase_name)) +
+      geom_bar(stat = "identity", position = position_dodge(0.9), width = 0.8) +
+      geom_errorbar(aes(ymin = mean_frac - se_frac, ymax = mean_frac + se_frac),
+                    position = position_dodge(0.9), width = 0.25) +
+      labs(title = "Cell Cycle Phase Fractions by Group (Mean ± SE)",
+           x = "Group",
+           y = "Fraction",
+           fill = "Phase") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      scale_fill_manual(values = c("G1" = "#E69F00", "S" = "#56B4E9", "G2M" = "#009E73"))
+    print(p_cc2)
+    
+    # 3. Faceted bar plot with significance
+    cc_long_summary <- cc_long_summary %>%
+      dplyr::left_join(
+        cc_stats %>%
+          dplyr::mutate(group = gsub("_vs_NIR", "", comparison)) %>%
+          dplyr::select(group, phase, sig_label) %>%
+          dplyr::rename(phase_name = phase),
+        by = c("group", "phase_name")
+      ) %>%
+      dplyr::mutate(
+        sig_label = ifelse(is.na(sig_label), "", sig_label),
+        label_y = mean_frac + se_frac + 0.02
+      )
+    
+    p_cc3 <- ggplot(cc_long_summary, aes(x = group, y = mean_frac, fill = phase_name)) +
+      geom_bar(stat = "identity", width = 0.7) +
+      geom_errorbar(aes(ymin = mean_frac - se_frac, ymax = mean_frac + se_frac),
+                    width = 0.25) +
+      geom_text(aes(y = label_y, label = sig_label), size = 4, vjust = 0) +
+      facet_wrap(~ phase_name, ncol = 3) +
+      labs(title = "Cell Cycle Phase Fractions by Group",
+           subtitle = "* p<0.05, ** p<0.01, *** p<0.001 vs NIR",
+           x = "Group",
+           y = "Fraction") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none") +
+      scale_fill_manual(values = c("G1" = "#E69F00", "S" = "#56B4E9", "G2M" = "#009E73"))
+    print(p_cc3)
+    
+    # 4. Ternary-like scatter: G1 vs S vs G2M
+    p_cc4 <- ggplot(cc_df, aes(x = G1_fraction, y = G2M_fraction, color = group)) +
+      geom_point(size = 3, alpha = 0.7) +
+      labs(title = "G1 vs G2M Phase Fractions",
+           subtitle = "Each point is a sample",
+           x = "G1 Fraction",
+           y = "G2M Fraction",
+           color = "Group") +
+      theme_bw()
+    print(p_cc4)
+    
+    # 5. Boxplots for each phase
+    p_cc5 <- ggplot(cc_long, aes(x = group, y = fraction, fill = group)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+      geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+      facet_wrap(~ phase_name, ncol = 3) +
+      labs(title = "Cell Cycle Phase Distribution",
+           x = "Group",
+           y = "Fraction") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+    print(p_cc5)
+    
+    # 6. Heatmap of cell cycle scores
+    cc_score_mat <- as.matrix(cc_df[, c("G1_score", "S_score", "G2M_score")])
+    rownames(cc_score_mat) <- cc_df$sample
+    
+    # Annotation
+    cc_annot <- data.frame(
+      Group = cc_df$group,
+      Phase = cc_df$phase,
+      row.names = cc_df$sample
+    )
+    
+    pheatmap(t(cc_score_mat),
+             annotation_col = cc_annot,
+             main = "Cell Cycle Scores Heatmap",
+             cluster_rows = FALSE,
+             cluster_cols = TRUE,
+             scale = "none",
+             show_colnames = TRUE,
+             fontsize_col = 8)
+    
+    dev.off()
+    
+    cat("\nCell cycle analysis plots saved to cell_cycle_analysis.pdf\n")
+    
+  } else {
+    cat("WARNING: Not enough cell cycle marker genes found in expression data\n")
+    cat("Need at least 50 marker genes, found:", marker_overlap, "\n")
+  }
+  
   cat("\n=== All Pathway Analyses Completed ===\n")
   cat("\nInterpretation:\n")
   cat("- Positive mean stat: Pathway genes are upregulated in irradiated vs NIR\n")
   cat("- Negative mean stat: Pathway genes are downregulated in irradiated vs NIR\n")
-  cat("- Higher singscore: Greater pathway activation in that sample\n")
-  cat("- EMT Score: Positive = mesenchymal shift, Negative = epithelial\n")
+  cat("- Higher singscore/GSVA: Greater pathway activation in that sample\n")
+  cat("- EMT Score (Singscore, Tan, GSVA & MLR): Positive = mesenchymal, Negative = epithelial\n")
+  cat("- Tan EMT Score = Mean(Mesenchymal genes) - Mean(Epithelial genes)\n")
+  cat("- GSVA EMT Score = GSVA(Mesenchymal) - GSVA(Epithelial)\n")
+  cat("- MLR EMT Score: -1 = Epithelial, 0 = Hybrid E/M, +1 = Mesenchymal\n")
+  cat("- Cell Cycle: G1/S/G2M fractions estimated from cyclone scores\n")
   cat("- * indicates statistically significant difference (p < 0.05)\n")
   cat("- Look for dose-dependent and time-dependent patterns\n\n")
   
